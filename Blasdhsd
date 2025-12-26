@@ -1,0 +1,1204 @@
+--[[ DEATH BALL PRO: V13.1 FIXED (IMPROVED ACCURACY + ANTI-BLIND FIX)
+    -------------------------------------------------------
+    FIXES:
+    1. Anti-Blind now only removes fog/black effects (doesn't destroy game UI)
+    2. Improved parry accuracy with stricter targeting
+    3. Better fast ball compensation (170+ speed)
+    4. Reduced false positives and early parries
+]]
+
+-- // 0. CLEANUP SYSTEM //
+local ScriptKey = "DeathBall_Pro_V13_Fixed"
+local getgenv = getgenv or function() return _G end
+
+if getgenv()[ScriptKey] then
+	if getgenv()[ScriptKey].Connection then getgenv()[ScriptKey].Connection:Disconnect() end
+	if getgenv()[ScriptKey].UI and getgenv()[ScriptKey].UI.Parent then getgenv()[ScriptKey].UI:Destroy() end
+    if getgenv()[ScriptKey].BlindLoop then task.cancel(getgenv()[ScriptKey].BlindLoop) end
+    if getgenv()[ScriptKey].AFKLoop then task.cancel(getgenv()[ScriptKey].AFKLoop) end
+end
+
+getgenv()[ScriptKey] = { Connection = nil, UI = nil, BlindLoop = nil, AFKLoop = nil }
+
+-- // SERVICES //
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Camera = workspace.CurrentCamera
+
+local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- // 1. UI LIBRARY (OPTIMIZED) // --
+local Library = {}
+local GUI_NAME = "DeathBall_Pro_UI_V13_Fixed"
+local THEME = {
+	Background = Color3.fromRGB(18, 18, 22),
+	Header     = Color3.fromRGB(22, 22, 28),
+	Section    = Color3.fromRGB(28, 28, 35),
+	Text       = Color3.fromRGB(240, 240, 240),
+	Accent     = Color3.fromRGB(255, 50, 50),
+	DarkText   = Color3.fromRGB(150, 150, 150),
+	Stroke     = Color3.fromRGB(50, 50, 55)
+}
+
+local function Create(class, props)
+	local inst = Instance.new(class)
+	for k, v in pairs(props) do inst[k] = v end
+	return inst
+end
+
+local function MakeDraggable(topbar, widget)
+	local dragging, dragInput, dragStart, startPos
+	local function Update(input)
+		local delta = input.Position - dragStart
+		local targetPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		TweenService:Create(widget, TweenInfo.new(0.05), {Position = targetPos}):Play()
+	end
+	topbar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true; dragStart = input.Position; startPos = widget.Position
+			input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+		end
+	end)
+	topbar.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end end)
+	UserInputService.InputChanged:Connect(function(input) if input == dragInput and dragging then Update(input) end end)
+end
+
+function Library:CreateWindow(config)
+	local Title = config.Title or "UI Library"
+	local OldInstance = PlayerGui:FindFirstChild(GUI_NAME)
+	if OldInstance then OldInstance:Destroy() end
+
+	local ScreenGui = Create("ScreenGui", {Name = GUI_NAME, Parent = PlayerGui, ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, IgnoreGuiInset = true})
+	getgenv()[ScriptKey].UI = ScreenGui
+
+	local MainFrame = Create("Frame", {Name = "MainFrame", Parent = ScreenGui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 500, 0, 350), BackgroundColor3 = THEME.Background, ClipsDescendants = true})
+	Create("UICorner", {Parent = MainFrame, CornerRadius = UDim.new(0, 10)}); Create("UIStroke", {Parent = MainFrame, Color = THEME.Accent, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border})
+
+	local Topbar = Create("Frame", {Parent = MainFrame, BackgroundColor3 = THEME.Header, Size = UDim2.new(1, 0, 0, 40), BorderSizePixel = 0})
+	MakeDraggable(Topbar, MainFrame)
+	Create("TextLabel", {Parent = Topbar, BackgroundTransparency = 1, Position = UDim2.new(0, 15, 0, 0), Size = UDim2.new(0.6, 0, 1, 0), Font = Enum.Font.GothamBold, Text = Title, TextColor3 = THEME.Text, TextSize = 16, TextXAlignment = Enum.TextXAlignment.Left})
+
+	local Controls = Create("Frame", {Parent = Topbar, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.new(0, 30, 0, 24), BackgroundTransparency = 1})
+	
+	local ExitBtn = Create("TextButton", {Parent = Controls, BackgroundColor3 = THEME.Accent, Size = UDim2.new(0, 24, 0, 24), Text = "X", Font = Enum.Font.GothamBold, TextColor3 = Color3.new(1,1,1), AutoButtonColor = false})
+	Create("UICorner", {Parent = ExitBtn, CornerRadius = UDim.new(0, 4)})
+
+	ExitBtn.MouseButton1Click:Connect(function() 
+		ScreenGui:Destroy()
+		if getgenv()[ScriptKey].Connection then getgenv()[ScriptKey].Connection:Disconnect() end
+        if getgenv()[ScriptKey].BlindLoop then task.cancel(getgenv()[ScriptKey].BlindLoop) end
+        if getgenv()[ScriptKey].AFKLoop then task.cancel(getgenv()[ScriptKey].AFKLoop) end
+	end)
+
+	local Sidebar = Create("Frame", {Parent = MainFrame, BackgroundColor3 = THEME.Section, Position = UDim2.new(0, 0, 0, 40), Size = UDim2.new(0, 140, 1, -40), BorderSizePixel = 0})
+	Create("UIListLayout", {Parent = Sidebar, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 5)}); Create("UIPadding", {Parent = Sidebar, PaddingTop = UDim.new(0, 10), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)})
+	local PageContainer = Create("Frame", {Parent = MainFrame, BackgroundTransparency = 1, Position = UDim2.new(0, 150, 0, 50), Size = UDim2.new(1, -160, 1, -60)})
+
+	local WindowObj = {Tabs = {}}
+	local FirstTab = true
+
+	function WindowObj:CreateTab(name)
+		local TabBtn = Create("TextButton", {Parent = Sidebar, BackgroundColor3 = THEME.Section, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), Text = name, Font = Enum.Font.GothamMedium, TextColor3 = THEME.DarkText, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false})
+		Create("UICorner", {Parent = TabBtn, CornerRadius = UDim.new(0, 6)}); Create("UIPadding", {Parent = TabBtn, PaddingLeft = UDim.new(0, 8)})
+		local Page = Create("ScrollingFrame", {Parent = PageContainer, Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Visible = false, ScrollBarThickness = 2, ScrollBarImageColor3 = THEME.Accent, BorderSizePixel = 0})
+		local PageLayout = Create("UIListLayout", {Parent = Page, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6)})
+		PageLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() Page.CanvasSize = UDim2.new(0, 0, 0, PageLayout.AbsoluteContentSize.Y + 20) end)
+
+		local function Activate()
+			for _, v in pairs(WindowObj.Tabs) do TweenService:Create(v.Btn, TweenInfo.new(0.2), {TextColor3 = THEME.DarkText}):Play(); v.Page.Visible = false end
+			TweenService:Create(TabBtn, TweenInfo.new(0.2), {TextColor3 = THEME.Accent}):Play(); Page.Visible = true
+		end
+		TabBtn.MouseButton1Click:Connect(Activate)
+		if FirstTab then FirstTab = false; Activate() end
+		table.insert(WindowObj.Tabs, {Btn = TabBtn, Page = Page})
+
+		local Elements = {}
+		function Elements:CreateSection(text) Create("TextLabel", {Parent = Page, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 25), Text = text:upper(), Font = Enum.Font.GothamBold, TextColor3 = THEME.DarkText, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left}) end
+		
+		function Elements:CreateButton(text, callback)
+			callback = callback or function() end
+			local Btn = Create("TextButton", {Parent = Page, BackgroundColor3 = THEME.Section, Size = UDim2.new(1, -5, 0, 32), Text = text, Font = Enum.Font.Gotham, TextColor3 = THEME.Text, TextSize = 13, AutoButtonColor = false})
+			Create("UICorner", {Parent = Btn, CornerRadius = UDim.new(0, 6)}); Create("UIStroke", {Parent = Btn, Color = THEME.Stroke, Thickness = 1})
+			Btn.MouseButton1Click:Connect(function()
+				TweenService:Create(Btn, TweenInfo.new(0.1), {BackgroundColor3 = THEME.Accent}):Play()
+				task.wait(0.1)
+				TweenService:Create(Btn, TweenInfo.new(0.2), {BackgroundColor3 = THEME.Section}):Play()
+				callback(Btn)
+			end)
+			return Btn
+		end
+
+		function Elements:CreateToggle(text, callback)
+			callback = callback or function() end
+			local Toggled = false
+			local Btn = Create("TextButton", {Parent = Page, BackgroundColor3 = THEME.Section, Size = UDim2.new(1, -5, 0, 32), Text = "", AutoButtonColor = false})
+			Create("UICorner", {Parent = Btn, CornerRadius = UDim.new(0, 6)}); Create("UIStroke", {Parent = Btn, Color = THEME.Stroke, Thickness = 1})
+			Create("TextLabel", {Parent = Btn, BackgroundTransparency = 1, Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(1, -50, 1, 0), Text = text, Font = Enum.Font.Gotham, TextColor3 = THEME.Text, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left})
+			local Tracker = Create("Frame", {Parent = Btn, BackgroundColor3 = Color3.fromRGB(30, 30, 30), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.new(0, 36, 0, 18)}); Create("UICorner", {Parent = Tracker, CornerRadius = UDim.new(1, 0)})
+			local Dot = Create("Frame", {Parent = Tracker, BackgroundColor3 = Color3.fromRGB(100, 100, 100), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 2, 0.5, 0), Size = UDim2.new(0, 14, 0, 14)}); Create("UICorner", {Parent = Dot, CornerRadius = UDim.new(1, 0)})
+			Btn.MouseButton1Click:Connect(function()
+				Toggled = not Toggled
+				local TargetPos = Toggled and UDim2.new(0, 20, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+				local TargetColor = Toggled and THEME.Accent or Color3.fromRGB(30, 30, 30)
+				local DotColor = Toggled and Color3.new(1,1,1) or Color3.fromRGB(100,100,100)
+				TweenService:Create(Dot, TweenInfo.new(0.2), {Position = TargetPos, BackgroundColor3 = DotColor}):Play()
+				TweenService:Create(Tracker, TweenInfo.new(0.2), {BackgroundColor3 = TargetColor}):Play()
+				callback(Toggled)
+			end)
+		end
+
+		function Elements:CreateSlider(text, min, max, default, callback)
+			callback = callback or function() end
+			local SliderFrame = Create("Frame", {Parent = Page, BackgroundColor3 = THEME.Section, Size = UDim2.new(1, -5, 0, 40)})
+			Create("UICorner", {Parent = SliderFrame, CornerRadius = UDim.new(0, 6)})
+			Create("UIStroke", {Parent = SliderFrame, Color = THEME.Stroke, Thickness = 1})
+			local Label = Create("TextLabel", {Parent = SliderFrame, BackgroundTransparency = 1, Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(1, -20, 0, 20), Text = text .. ": " .. default, Font = Enum.Font.Gotham, TextColor3 = THEME.Text, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left})
+			local Bar = Create("Frame", {Parent = SliderFrame, BackgroundColor3 = Color3.fromRGB(50,50,50), Position = UDim2.new(0, 10, 0, 25), Size = UDim2.new(1, -20, 0, 10)})
+			Create("UICorner", {Parent = Bar, CornerRadius = UDim.new(0, 5)})
+			local Fill = Create("Frame", {Parent = Bar, BackgroundColor3 = THEME.Accent, Size = UDim2.new((default - min)/(max - min), 0, 1, 0)})
+			Create("UICorner", {Parent = Fill, CornerRadius = UDim.new(0, 5)})
+			local Knob = Create("Frame", {Parent = Bar, BackgroundColor3 = THEME.Text, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new((default - min)/(max - min), 0, 0.5, 0), Size = UDim2.new(0, 16, 0, 16)})
+			Create("UICorner", {Parent = Knob, CornerRadius = UDim.new(1, 0)})
+			
+			local Value = default
+			local dragging = false
+			local function UpdateSlider(input)
+				local relativeX = math.clamp((input.Position.X - Bar.AbsolutePosition.X) / Bar.AbsoluteSize.X, 0, 1)
+				Value = math.floor(min + (max - min) * relativeX)
+				Fill.Size = UDim2.new(relativeX, 0, 1, 0)
+				Knob.Position = UDim2.new(relativeX, 0, 0.5, 0)
+				Label.Text = text .. ": " .. Value
+				callback(Value)
+			end
+			Bar.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					dragging = true
+					UpdateSlider(input)
+				end
+			end)
+			Bar.InputEnded:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					dragging = false
+				end
+			end)
+			UserInputService.InputChanged:Connect(function(input)
+				if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+					UpdateSlider(input)
+				end
+			end)
+		end
+		return Elements
+	end
+	return WindowObj
+end
+
+-- // 2. IMPROVED CONFIGURATION & STATE // --
+
+local Config = {
+	Enabled = false,
+	AutoSpam = false,
+	AutoCurve = false,
+	CurveMode = "Up",
+	Debug = false,
+	SpamIntensity = "Medium",
+	InvisibleCurve = false,
+	ShowHitbox = false,
+	ManualOffset = 0,
+	PerfectMode = true,
+    AntiBlind = false,
+	AccuracyBoost = 100,
+	AntiCurveMode = true,
+	MinimizeKeybind = Enum.KeyCode.RightControl,
+	IsListeningForKey = false,
+	FOV = 70,
+	AntiAFK = false,
+	MaxCamera = false
+}
+
+local State = {
+	BallShadow = nil,
+	BallObject = nil,
+	PreviousPosition = nil,
+	PreviousVelocity = nil,
+	LastParry = 0,
+	IsCurving = false,
+	ConsecutiveDetections = 0,
+	VelocityHistory = {},
+	HitboxVisualizer = nil,
+	PositionHistory = {},
+	TripleVectorHistory = {},
+	SmoothedVelocity = Vector3.zero,
+	PerfectConfidence = 0,
+	QuantumPrediction = Vector3.zero,
+	SuccessfulParries = 0,
+	TotalAttempts = 0,
+	SubFrameBuffer = {},
+	CurveStrength = 0,
+	IsSkillActive = false
+}
+
+local CurveModes = {"Up", "Down", "Back", "Left", "Right", "Random"}
+local CurveIndex = 1
+
+-- // 3. IMPROVED HELPER FUNCTIONS // --
+
+local function GetBallColor(target)
+	if not target then return Color3.new(1, 1, 1) end
+	local highlight = target:FindFirstChildOfClass("Highlight")
+	if highlight then return highlight.FillColor end
+	return target:IsA("Part") and target.Color or Color3.new(1, 1, 1)
+end
+
+local function GetVisualHeight(shadow)
+	if not shadow then return 0 end
+	return math.min(((math.max(0, shadow.Size.X - 5)) * 20) + 3, 100)
+end
+
+-- IMPROVED SMOOTHING: Better for fast balls
+local function QuantumSmoothVelocity(currentVel, velocityMag, ping)
+	local alpha = 0.75
+	if velocityMag > 150 then alpha = 0.85
+	elseif velocityMag < 60 then alpha = 0.65
+	end
+	
+	if ping * 1000 > 200 then alpha = alpha + 0.05 end
+	
+	State.SmoothedVelocity = State.SmoothedVelocity:Lerp(currentVel, alpha)
+	return State.SmoothedVelocity
+end
+
+-- TRIPLE-VECTOR ANALYSIS: Past, present, and future trajectory
+local function TripleVectorAnalysis(currentPos, velocityVec, dt)
+	table.insert(State.TripleVectorHistory, {
+		pos = currentPos,
+		vel = velocityVec,
+		time = os.clock()
+	})
+	
+	while #State.TripleVectorHistory > 15 do
+		table.remove(State.TripleVectorHistory, 1)
+	end
+	
+	if #State.TripleVectorHistory < 5 then return 95, Vector3.zero end
+	
+	local rootPos = LocalPlayer.Character.PrimaryPart.Position
+	local confidenceScores = {}
+	
+	for i = 3, #State.TripleVectorHistory do
+		local past = State.TripleVectorHistory[i-2]
+		local present = State.TripleVectorHistory[i-1]
+		local future = State.TripleVectorHistory[i]
+		
+		local vel1 = (present.pos - past.pos) / math.max(0.001, present.time - past.time)
+		local vel2 = (future.pos - present.pos) / math.max(0.001, future.time - present.time)
+		
+		local velDiff = (vel2 - vel1).Magnitude
+		local velocityStability = math.max(0, 100 - (velDiff * 5))
+		
+		local timeToPlayer = (rootPos - future.pos).Magnitude / math.max(1, vel2.Magnitude)
+		local predictedPos = future.pos + (vel2 * timeToPlayer)
+		local missDistance = (predictedPos - rootPos).Magnitude
+		
+		local accuracyScore = math.max(20, 100 - (missDistance * 1.5))
+		local segmentConfidence = (velocityStability + accuracyScore) / 2
+		
+		table.insert(confidenceScores, segmentConfidence)
+	end
+	
+	local totalConfidence = 0
+	for _, score in ipairs(confidenceScores) do
+		totalConfidence = totalConfidence + score
+	end
+	local perfectConfidence = totalConfidence / math.max(1, #confidenceScores)
+	
+	local quantumPrediction = Vector3.zero
+	if #State.TripleVectorHistory >= 5 then
+		local latest = State.TripleVectorHistory[#State.TripleVectorHistory]
+		local mid = State.TripleVectorHistory[#State.TripleVectorHistory - 2]
+		local old = State.TripleVectorHistory[#State.TripleVectorHistory - 4]
+		
+		local accel = (latest.vel - mid.vel) / math.max(0.001, latest.time - mid.time)
+		local jerk = (mid.vel - old.vel) / math.max(0.001, mid.time - old.time)
+		
+		quantumPrediction = accel + (jerk * 0.5)
+	end
+	
+	return perfectConfidence, quantumPrediction
+end
+
+-- SKILL DETECTION
+local function PerfectSkillDetection()
+	if #State.VelocityHistory < 6 then return false, 0 end
+	
+	local velocities = State.VelocityHistory
+	local len = #velocities
+	
+	local decelPattern = velocities[len-3] > 60 and velocities[len-2] < 25 and velocities[len-1] < 20 and velocities[len] > 70
+	local spikePattern = velocities[len] > (velocities[len-1] * 3) and velocities[len] > 90
+	
+	local sustainedPattern = true
+	for i = len-3, len do
+		if i > 0 and velocities[i] - velocities[i-1] < 10 then
+			sustainedPattern = false
+			break
+		end
+	end
+	sustainedPattern = sustainedPattern and velocities[len] > 80
+	
+	if decelPattern or spikePattern or sustainedPattern then
+		State.IsSkillActive = true
+		return true, 5.5
+	end
+	
+	State.IsSkillActive = false
+	return false, 0
+end
+
+-- CURVE PREDICTION - Enhanced for accelerated curves
+local function AdvancedCurvePrediction(velocityVec, currentPos)
+	table.insert(State.PositionHistory, currentPos)
+	if #State.PositionHistory > 15 then
+		table.remove(State.PositionHistory, 1)
+	end
+	
+	if #State.PositionHistory < 5 then return 0, Vector3.zero, "None" end
+	
+	local trajectories = {}
+	for i = 2, #State.PositionHistory do
+		local delta = State.PositionHistory[i] - State.PositionHistory[i-1]
+		if delta.Magnitude > 0.001 then
+			table.insert(trajectories, delta.Unit)
+		end
+	end
+	
+	if #trajectories < 3 then return 0, Vector3.zero, "None" end
+	
+	local totalAngleChange = 0
+	local angleChanges = {}
+	for i = 2, #trajectories do
+		local dot = math.clamp(trajectories[i]:Dot(trajectories[i-1]), -1, 1)
+		local angle = math.acos(dot) * (180 / math.pi)
+		if angle == angle then
+			totalAngleChange = totalAngleChange + angle
+			table.insert(angleChanges, angle)
+		end
+	end
+	
+	-- Detect acceleration in curve
+	local isAccelerating = false
+	if #angleChanges >= 3 then
+		local recentAngle = (angleChanges[#angleChanges] + angleChanges[#angleChanges-1]) / 2
+		local oldAngle = (angleChanges[1] + angleChanges[2]) / 2
+		if recentAngle > oldAngle * 1.4 then
+			isAccelerating = true
+		end
+	end
+	
+	local curveType = "None"
+	local curveStrength = 0
+	local curveDirection = Vector3.zero
+	
+	if #State.PositionHistory >= 5 then
+		local recent = State.PositionHistory[#State.PositionHistory]
+		local mid = State.PositionHistory[#State.PositionHistory - 2]
+		local old = State.PositionHistory[#State.PositionHistory - 4]
+		
+		local verticalChange = recent.Y - old.Y
+		local horizontalDelta = Vector3.new(recent.X - old.X, 0, recent.Z - old.Z)
+		local lateralMagnitude = horizontalDelta.Magnitude
+		
+		if verticalChange > 8 and totalAngleChange > 35 then
+			curveType = "Upward"
+			curveStrength = math.min(8, (verticalChange / 2.5) + (totalAngleChange / 10))
+			curveDirection = Vector3.new(0, 1, 0)
+			
+		elseif verticalChange < -8 and totalAngleChange > 35 then
+			curveType = "Downward"
+			curveStrength = math.min(8, (math.abs(verticalChange) / 2.5) + (totalAngleChange / 10))
+			curveDirection = Vector3.new(0, -1, 0)
+			
+		elseif #trajectories >= 4 then
+			local vel1 = trajectories[#trajectories - 3]
+			local vel2 = trajectories[#trajectories - 1]
+			local vel3 = trajectories[#trajectories]
+			
+			local dot1 = vel1:Dot(vel2)
+			local dot2 = vel2:Dot(vel3)
+			
+			if dot1 < 0.3 and totalAngleChange > 50 then
+				curveType = "Backward"
+				curveStrength = math.min(9, totalAngleChange / 7)
+				curveDirection = -vel2
+			end
+			
+		elseif lateralMagnitude > 10 and totalAngleChange > 30 then
+			local lateralDir = horizontalDelta.Unit
+			local rightVector = Vector3.new(1, 0, 0)
+			local dotRight = lateralDir:Dot(rightVector)
+			
+			if math.abs(dotRight) > 0.5 then
+				curveType = dotRight > 0 and "Right" or "Left"
+				curveStrength = math.min(7, (lateralMagnitude / 3.5) + (totalAngleChange / 12))
+				curveDirection = lateralDir
+			else
+				curveType = "Diagonal"
+				curveStrength = math.min(6, totalAngleChange / 11)
+				curveDirection = lateralDir
+			end
+			
+		elseif totalAngleChange > 60 then
+			curveType = "Spiral"
+			curveStrength = math.min(9, totalAngleChange / 8)
+			
+			local avgDirection = Vector3.zero
+			for i = math.max(1, #trajectories - 3), #trajectories do
+				avgDirection = avgDirection + trajectories[i]
+			end
+			curveDirection = (avgDirection / 4).Unit
+			
+		elseif totalAngleChange > 40 then
+			curveType = "Standard"
+			curveStrength = math.min(6, totalAngleChange / 9)
+			curveDirection = (trajectories[#trajectories] - trajectories[#trajectories-1]).Unit
+		end
+	end
+	
+	local velocityMag = velocityVec.Magnitude
+	if velocityMag > 150 then
+		curveStrength = curveStrength * 1.4
+	elseif velocityMag < 60 then
+		curveStrength = curveStrength * 0.8
+	end
+	
+	-- BOOST for accelerating curves
+	if isAccelerating then
+		curveStrength = curveStrength * 1.5
+		if Config.Debug then
+			print("[ACCELERATED CURVE DETECTED] Strength boosted to: " .. curveStrength)
+		end
+	end
+	
+	State.CurveStrength = curveStrength
+	
+	local compensationMultiplier = 16
+	if curveType == "Upward" then
+		compensationMultiplier = 20
+	elseif curveType == "Downward" then
+		compensationMultiplier = 18
+	elseif curveType == "Backward" then
+		compensationMultiplier = 22
+	elseif curveType == "Spiral" then
+		compensationMultiplier = 19
+	end
+	
+	if isAccelerating then
+		compensationMultiplier = compensationMultiplier * 1.3
+	end
+	
+	local compensationVector = curveDirection * (curveStrength * compensationMultiplier)
+	
+	return curveStrength, compensationVector, curveType
+end
+
+-- IMPROVED COMPENSATION: Better for fast balls
+local function ZeroMissCompensation(velocityMag, ping, isSkill, skillBonus, curveStrength, confidence)
+	local pingMs = ping * 1000
+	local baseDistance = 15
+	
+	if isSkill then
+		baseDistance = baseDistance + skillBonus
+	end
+	
+	if curveStrength > 0 then
+		local curveBonus = curveStrength * 2.4
+		baseDistance = baseDistance + curveBonus
+	end
+	
+	if confidence < 50 then
+		baseDistance = baseDistance * 0.88
+	elseif confidence > 90 then
+		baseDistance = baseDistance * 1.12
+	end
+	
+	-- Improved velocity compensation
+	if velocityMag > 200 then
+		baseDistance = baseDistance + (ping * velocityMag * 3.4)
+	elseif velocityMag > 170 then
+		baseDistance = baseDistance + (ping * velocityMag * 3.0)
+	elseif velocityMag > 140 then
+		baseDistance = baseDistance + (ping * velocityMag * 2.6)
+	elseif velocityMag > 110 then
+		baseDistance = baseDistance + (ping * velocityMag * 2.2)
+	elseif velocityMag > 80 then
+		baseDistance = baseDistance + (ping * velocityMag * 1.8)
+	elseif velocityMag > 50 then
+		baseDistance = baseDistance + (ping * velocityMag * 1.5)
+	else
+		baseDistance = baseDistance + (ping * velocityMag * 1.1)
+	end
+	
+	if pingMs >= 300 then
+		baseDistance = baseDistance * 1.22
+	elseif pingMs >= 200 then
+		baseDistance = baseDistance * 1.14
+	elseif pingMs >= 150 then
+		baseDistance = baseDistance * 1.08
+	elseif pingMs < 50 then
+		baseDistance = baseDistance * 0.95
+	end
+	
+	local accuracyMultiplier = Config.AccuracyBoost / 100
+	baseDistance = baseDistance * accuracyMultiplier
+	
+	baseDistance = baseDistance + Config.ManualOffset
+	
+	return math.clamp(baseDistance, 9, 60)
+end
+
+local function UpdateHitboxVisualizer(position, radius)
+	if not Config.ShowHitbox then
+		if State.HitboxVisualizer then
+			State.HitboxVisualizer:Destroy()
+			State.HitboxVisualizer = nil
+		end
+		return
+	end
+	
+	if not State.HitboxVisualizer or not State.HitboxVisualizer.Parent then
+		State.HitboxVisualizer = Instance.new("Part")
+		State.HitboxVisualizer.Name = "HitboxVisualizer"
+		State.HitboxVisualizer.Anchored = true
+		State.HitboxVisualizer.CanCollide = false
+		State.HitboxVisualizer.Shape = Enum.PartType.Ball
+		State.HitboxVisualizer.Material = Enum.Material.ForceField
+		State.HitboxVisualizer.Color = Color3.fromRGB(255, 80, 80)
+		State.HitboxVisualizer.Transparency = 0.7
+		State.HitboxVisualizer.CastShadow = false
+		State.HitboxVisualizer.Parent = workspace
+		
+		local highlight = Instance.new("Highlight")
+		highlight.FillColor = Color3.fromRGB(255, 100, 100)
+		highlight.FillTransparency = 0.8
+		highlight.OutlineColor = Color3.fromRGB(255, 50, 50)
+		highlight.OutlineTransparency = 0.5
+		highlight.Parent = State.HitboxVisualizer
+	end
+	
+	local diameter = radius * 2
+	local targetSize = Vector3.new(diameter, diameter, diameter)
+	State.HitboxVisualizer.Size = State.HitboxVisualizer.Size:Lerp(targetSize, 0.35)
+	State.HitboxVisualizer.Position = position
+end
+
+-- IMPROVED TARGETING: Better accuracy with stricter thresholds
+local function ZeroMissTargeting(currentPos, velocityVec, rootPos)
+	local color = GetBallColor(State.BallObject)
+	if color == Color3.new(1, 1, 1) then return false end
+	
+	local velocityMag = velocityVec.Magnitude
+	local distance = (rootPos - currentPos).Magnitude
+	local ping = LocalPlayer:GetNetworkPing()
+	local pingMs = ping * 1000
+	
+	local perfectConfidence, quantumPrediction = TripleVectorAnalysis(currentPos, velocityVec, 0.016)
+	State.PerfectConfidence = perfectConfidence
+	State.QuantumPrediction = quantumPrediction
+	
+	if perfectConfidence < 18 then
+		State.ConsecutiveDetections = 0
+		return false
+	end
+	
+	local timeToImpact = distance / math.max(1, velocityMag)
+	local predictedPos = currentPos + (velocityVec * timeToImpact)
+	
+	-- Adjusted quantum prediction with better tuning
+	local quantumMultiplier = 3.5
+	if velocityMag > 170 then
+		quantumMultiplier = 3.2
+	elseif velocityMag > 150 then
+		quantumMultiplier = 3.4
+	end
+	predictedPos = predictedPos + (quantumPrediction * timeToImpact * quantumMultiplier)
+	
+	if State.CurveStrength > 0 and Config.AntiCurveMode then
+		local _, curveOffset, curveType = AdvancedCurvePrediction(velocityVec, currentPos)
+		predictedPos = predictedPos + (curveOffset * timeToImpact * 0.7)
+		
+		if Config.Debug and curveType ~= "None" then
+			print(string.format("[CURVE] Type:%s | Strength:%.1f", curveType, State.CurveStrength))
+		end
+	end
+	
+	local missMargin = (predictedPos - rootPos).Magnitude
+	
+	local maxMiss = 20 + (State.CurveStrength * 4)
+	if perfectConfidence > 85 then
+		maxMiss = maxMiss + 5
+	end
+	
+	if missMargin > maxMiss and distance > 28 then
+		State.ConsecutiveDetections = 0
+		return false
+	end
+	
+	local dirToPlayer = (rootPos - currentPos).Unit
+	local dirOfBall = velocityVec.Unit
+	local dotProduct = dirToPlayer:Dot(dirOfBall)
+	
+	if dotProduct < -0.12 then
+		local horizontalDist = (Vector3.new(rootPos.X, 0, rootPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
+		if horizontalDist < 13 and velocityMag > 25 and distance < 20 and perfectConfidence > 55 then
+			State.ConsecutiveDetections = State.ConsecutiveDetections + 1
+			return State.ConsecutiveDetections >= 4
+		else
+			State.ConsecutiveDetections = 0
+			return false
+		end
+	end
+	
+	-- Stricter angle tolerance for better accuracy
+	local angleTolerance = 0.60
+	
+	if velocityMag > 180 then
+		angleTolerance = 0.54
+	elseif velocityMag > 150 then
+		angleTolerance = 0.56
+	elseif velocityMag > 130 then
+		angleTolerance = 0.58
+	elseif velocityMag > 80 then
+		angleTolerance = 0.59
+	end
+	
+	if perfectConfidence > 85 then
+		angleTolerance = angleTolerance + 0.08
+	elseif perfectConfidence > 70 then
+		angleTolerance = angleTolerance + 0.05
+	end
+	
+	if dotProduct < angleTolerance then
+		State.ConsecutiveDetections = 0
+		return false
+	end
+	
+	local maxDistance = 180 + (velocityMag * 0.5)
+	if distance > maxDistance then
+		State.ConsecutiveDetections = 0
+		return false
+	end
+	
+	local heightDiff = math.abs(currentPos.Y - rootPos.Y)
+	if heightDiff > 25 then
+		State.ConsecutiveDetections = 0
+		return false
+	end
+	
+	if Config.PerfectMode and perfectConfidence > 80 and dotProduct > 0.58 then
+		State.ConsecutiveDetections = 10
+		return true
+	end
+	
+	if dotProduct > 0.48 then
+		State.ConsecutiveDetections = State.ConsecutiveDetections + 2
+	end
+	
+	return State.ConsecutiveDetections >= 3
+end
+
+local function TriggerParry()
+	if State.IsCurving then return end
+	
+	local currentTime = os.clock()
+	local timeSinceLastParry = currentTime - State.LastParry
+	
+	local velocityMag = State.PreviousVelocity and State.PreviousVelocity.Magnitude or 0
+	local ping = LocalPlayer:GetNetworkPing()
+	local pingMs = ping * 1000
+	
+	local minCooldown = 0.10
+	
+	if velocityMag > 200 then
+		minCooldown = 0.015
+	elseif velocityMag > 170 then
+		minCooldown = 0.025
+	elseif velocityMag > 140 then
+		minCooldown = 0.035
+	elseif velocityMag > 110 then
+		minCooldown = 0.045
+	elseif velocityMag > 80 then
+		minCooldown = 0.060
+	end
+	
+	if State.IsSkillActive then minCooldown = minCooldown * 0.8 end
+	if State.PerfectConfidence > 90 then minCooldown = minCooldown * 0.85 end
+	
+	if timeSinceLastParry < minCooldown then return end
+
+	if Config.Debug then
+		print(string.format("[V13.1 FIXED] ✓ PARRY! Vel:%.1f | Conf:%.0f%% | Cooldown:%.3fs", 
+			velocityMag, State.PerfectConfidence, minCooldown))
+	end
+
+	State.IsCurving = true
+	State.TotalAttempts = State.TotalAttempts + 1
+	local originalCFrame = Camera.CFrame
+	
+	local curveDirection = nil
+	if Config.AutoCurve then
+		local curveMode = Config.CurveMode
+		if curveMode == "Random" then
+			local randomModes = {"Up", "Down", "Back", "Left", "Right"}
+			curveMode = randomModes[math.random(1, #randomModes)]
+		end
+		
+		local rad90 = math.rad(90)
+		if curveMode == "Up" then curveDirection = CFrame.Angles(rad90, 0, 0)
+		elseif curveMode == "Down" then curveDirection = CFrame.Angles(-rad90, 0, 0)
+		elseif curveMode == "Back" then curveDirection = CFrame.Angles(0, math.rad(180), 0)
+		elseif curveMode == "Left" then curveDirection = CFrame.Angles(0, rad90, 0)
+		elseif curveMode == "Right" then curveDirection = CFrame.Angles(0, -rad90, 0)
+		end
+	end
+	
+	if Config.AutoCurve and curveDirection then
+		if Config.InvisibleCurve then
+			Camera.CFrame = originalCFrame * curveDirection
+			
+			if IS_MOBILE then
+				local parryButton = PlayerGui:FindFirstChild("Parry", true) or PlayerGui:FindFirstChild("ParryButton", true) or PlayerGui:FindFirstChild("BlockButton", true)
+				if parryButton and parryButton:IsA("GuiButton") then
+					for _, connection in pairs(getconnections(parryButton.MouseButton1Click)) do connection:Fire() end
+				else
+					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+					task.wait()
+					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+				end
+			else
+				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+				task.wait()
+				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+			end
+			
+			Camera.CFrame = originalCFrame
+		else
+			Camera.CFrame = originalCFrame * curveDirection
+			
+			if IS_MOBILE then
+				local parryButton = PlayerGui:FindFirstChild("Parry", true) or PlayerGui:FindFirstChild("ParryButton", true) or PlayerGui:FindFirstChild("BlockButton", true)
+				if parryButton and parryButton:IsA("GuiButton") then
+					for _, connection in pairs(getconnections(parryButton.MouseButton1Click)) do connection:Fire() end
+				else
+					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+				end
+			else
+				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+			end
+			
+			task.delay(0.11, function() Camera.CFrame = originalCFrame end)
+		end
+	else
+		if IS_MOBILE then
+			local parryButton = PlayerGui:FindFirstChild("Parry", true) or PlayerGui:FindFirstChild("ParryButton", true) or PlayerGui:FindFirstChild("BlockButton", true)
+			if parryButton and parryButton:IsA("GuiButton") then
+				for _, connection in pairs(getconnections(parryButton.MouseButton1Click)) do connection:Fire() end
+			else
+				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+			end
+		else
+			VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+			VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+		end
+	end
+	
+	State.LastParry = currentTime
+	State.SuccessfulParries = State.SuccessfulParries + 1
+	
+	task.delay(0.11, function() State.IsCurving = false end)
+end
+
+local function SpamParry()
+	local ping = LocalPlayer:GetNetworkPing()
+	local pingMs = ping * 1000
+	local velocityMag = State.PreviousVelocity and State.PreviousVelocity.Magnitude or 0
+	
+	local cooldowns = {Low = 0.025, Medium = 0.012, High = 0.003}
+	
+	if pingMs >= 200 then
+		cooldowns.Low = 0.020
+		cooldowns.Medium = 0.010
+		cooldowns.High = 0.002
+	end
+	
+	if velocityMag > 170 then
+		cooldowns.High = 0.001
+		cooldowns.Medium = 0.008
+	end
+	
+	local cooldown = cooldowns[Config.SpamIntensity] or 0.012
+	
+	if (os.clock() - State.LastParry) > cooldown then TriggerParry() end
+end
+
+-- // 4. UI SETUP // --
+local Window = Library:CreateWindow({ Title = "Death Ball Pro V13.1 FIXED" })
+local MainTab = Window:CreateTab("Main")
+
+MainTab:CreateSection("Combat")
+MainTab:CreateToggle("Auto Parry", function(Value)
+	Config.Enabled = Value
+	
+	if Value then
+		print("[V13.1 FIXED] Auto Parry ENABLED - Improved Accuracy")
+	else
+		print("[V13.1 FIXED] Auto Parry DISABLED")
+	end
+	
+	State.BallShadow = nil
+	State.BallObject = nil
+	State.PreviousPosition = nil
+	State.PreviousVelocity = nil
+	State.ConsecutiveDetections = 0
+	State.VelocityHistory = {}
+	State.PositionHistory = {}
+	State.TripleVectorHistory = {}
+	State.SmoothedVelocity = Vector3.zero
+	State.PerfectConfidence = 0
+	State.SuccessfulParries = 0
+	State.TotalAttempts = 0
+	
+	if not Value and State.HitboxVisualizer then
+		State.HitboxVisualizer:Destroy()
+		State.HitboxVisualizer = nil
+	end
+end)
+
+MainTab:CreateToggle("Auto Spam (Clash)", function(Value) Config.AutoSpam = Value end)
+
+MainTab:CreateButton("Spam: Medium", function(Btn)
+	local modes = {"Low", "Medium", "High"}
+	local currentIndex = 1
+	for i, mode in ipairs(modes) do
+		if Config.SpamIntensity == mode then currentIndex = i break end
+	end
+	currentIndex = currentIndex + 1
+	if currentIndex > #modes then currentIndex = 1 end
+	Config.SpamIntensity = modes[currentIndex]
+	Btn.Text = "Spam: " .. Config.SpamIntensity
+end)
+
+MainTab:CreateSection("Curve Settings")
+MainTab:CreateToggle("Auto Curve", function(Value) Config.AutoCurve = Value end)
+MainTab:CreateToggle("Invisible Curve", function(Value) Config.InvisibleCurve = Value end)
+MainTab:CreateButton("Curve Mode: Up", function(Btn)
+	CurveIndex = CurveIndex + 1
+	if CurveIndex > #CurveModes then CurveIndex = 1 end
+	Config.CurveMode = CurveModes[CurveIndex]
+	Btn.Text = "Curve Mode: " .. Config.CurveMode
+end)
+
+MainTab:CreateSection("Advanced Detection")
+MainTab:CreateToggle("Anti-Curve Mode", function(Value) Config.AntiCurveMode = Value end)
+
+MainTab:CreateSection("Compensation")
+MainTab:CreateButton("Manual Offset: 0", function(Btn)
+	Config.ManualOffset = Config.ManualOffset + 1
+	if Config.ManualOffset > 10 then Config.ManualOffset = -10 end
+	Btn.Text = "Manual Offset: " .. Config.ManualOffset
+end)
+
+MainTab:CreateSection("Misc")
+MainTab:CreateToggle("Show Hitbox", function(Value) 
+	Config.ShowHitbox = Value
+	if not Value and State.HitboxVisualizer then
+		State.HitboxVisualizer:Destroy()
+		State.HitboxVisualizer = nil
+	end
+end)
+MainTab:CreateToggle("Debug Mode", function(Value) 
+	Config.Debug = Value 
+	if Value then
+		print("[V13.1 FIXED] Debug Mode ENABLED")
+	else
+		print("[V13.1 FIXED] Debug Mode DISABLED")
+	end
+end)
+
+local VisualsTab = Window:CreateTab("Visuals")
+VisualsTab:CreateSection("World")
+VisualsTab:CreateSlider("Field Of View", 70, 120, 70, function(v) 
+	Config.FOV = v
+	workspace.CurrentCamera.FieldOfView = v 
+end)
+
+VisualsTab:CreateToggle("Max Camera Height", function(Value)
+	Config.MaxCamera = Value
+	if Value then
+		LocalPlayer.CameraMaxZoomDistance = 9999
+		LocalPlayer.CameraMinZoomDistance = 0.5
+	else
+		LocalPlayer.CameraMaxZoomDistance = 128
+		LocalPlayer.CameraMinZoomDistance = 0.5
+	end
+end)
+
+VisualsTab:CreateToggle("Anti-Blind (Fog/Black)", function(Value)
+	Config.AntiBlind = Value
+	if Value then
+		getgenv()[ScriptKey].BlindLoop = task.spawn(function()
+			while Config.AntiBlind and task.wait(0.1) do
+				-- Fix lighting
+				Lighting.FogEnd = 100000
+				Lighting.FogStart = 100000
+				Lighting.Brightness = 2
+				Lighting.GlobalShadows = false
+				Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+				
+				-- Remove blind effects (disable, don't destroy)
+				for _, effect in pairs(Lighting:GetChildren()) do
+					if effect:IsA("BlurEffect") or effect:IsA("ColorCorrectionEffect") then
+						effect.Enabled = false
+					end
+				end
+				
+				-- Remove ONLY blind-related GUIs (more specific targeting)
+				local protectedGuis = {"DeathBall_Pro_UI_V13", "CoreGui", "Leaderboard", "Chat", "PlayerList", "Backpack", "Health", "Intermission", "Shop", "Parry"}
+				for _, gui in pairs(LocalPlayer.PlayerGui:GetChildren()) do
+					-- Skip protected GUIs
+					local isProtected = false
+					for _, protected in pairs(protectedGuis) do
+						if string.find(string.lower(gui.Name), string.lower(protected)) then
+							isProtected = true
+							break
+						end
+					end
+					
+					if not isProtected and gui:IsA("ScreenGui") and gui.Enabled then
+						-- Check for blind-specific patterns
+						local hasBlindEffect = false
+						
+						-- Check for full-screen dark overlay frames
+						for _, child in pairs(gui:GetDescendants()) do
+							if child:IsA("Frame") then
+								local isFullScreen = child.Size == UDim2.new(1,0,1,0) or 
+								                     (child.Size.X.Scale >= 0.98 and child.Size.Y.Scale >= 0.98)
+								
+								if isFullScreen and child.BackgroundTransparency < 0.7 then
+									local color = child.BackgroundColor3
+									local isDark = color.R < 0.15 and color.G < 0.15 and color.B < 0.15
+									
+									if isDark then
+										hasBlindEffect = true
+										child.Visible = false -- Hide instead of destroying parent
+										break
+									end
+								end
+							elseif child:IsA("ImageLabel") and child.ImageTransparency < 0.5 then
+								-- Check for flashbang/white flash images
+								if child.Size == UDim2.new(1,0,1,0) or 
+								   (child.Size.X.Scale >= 0.98 and child.Size.Y.Scale >= 0.98) then
+									child.Visible = false
+								end
+							end
+						end
+						
+						-- Only disable if confirmed blind effect
+						if hasBlindEffect then
+							gui.Enabled = false
+						end
+					end
+				end
+				
+				-- Remove camera effects (disable only)
+				if workspace.CurrentCamera then
+					for _, effect in pairs(workspace.CurrentCamera:GetChildren()) do
+						if effect:IsA("BlurEffect") or effect:IsA("ColorCorrectionEffect") then
+							effect.Enabled = false
+						end
+					end
+				end
+			end
+		end)
+	else
+		if getgenv()[ScriptKey].BlindLoop then task.cancel(getgenv()[ScriptKey].BlindLoop) end
+		Lighting.FogEnd = 10000
+		Lighting.GlobalShadows = true
+	end
+end)
+
+VisualsTab:CreateToggle("Anti-AFK", function(Value)
+	Config.AntiAFK = Value
+	if Value then
+		getgenv()[ScriptKey].AFKLoop = task.spawn(function()
+			local VirtualUser = game:GetService("VirtualUser")
+			while Config.AntiAFK and task.wait(120) do
+				VirtualUser:CaptureController()
+				VirtualUser:ClickButton2(Vector2.new())
+			end
+		end)
+	else
+		if getgenv()[ScriptKey].AFKLoop then 
+			task.cancel(getgenv()[ScriptKey].AFKLoop) 
+		end
+	end
+end)
+
+local SettingsTab = Window:CreateTab("Settings")
+SettingsTab:CreateSection("UI Controls")
+
+local KeybindBtn = SettingsTab:CreateButton("Minimize Key: RightCtrl [Click to Change]", function(Btn)
+	if Config.IsListeningForKey then return end
+	
+	Config.IsListeningForKey = true
+	Btn.Text = "Press Any Key..."
+	Btn.BackgroundColor3 = THEME.Accent
+	
+	local connection
+	connection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			Config.MinimizeKeybind = input.KeyCode
+			
+			local keyName = input.KeyCode.Name
+			Btn.Text = "Minimize Key: " .. keyName .. " [Click to Change]"
+			Btn.BackgroundColor3 = THEME.Section
+			
+			Config.IsListeningForKey = false
+			connection:Disconnect()
+		end
+	end)
+end)
+
+-- // 5. IMPROVED PHYSICS LOOP // --
+local Connection = RunService.RenderStepped:Connect(function(dt)
+	if not Config.Enabled then return end
+	if not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
+
+	local ballShadow = workspace:FindFirstChild("FX") and workspace.FX:FindFirstChild("BallShadow")
+	local ballObject = workspace:FindFirstChild("Ball")
+	
+	if not ballObject then
+		for _, obj in pairs(workspace:GetChildren()) do
+			if obj:IsA("BasePart") and obj.Name == "Part" and obj:FindFirstChildOfClass("Highlight") then
+				ballObject = obj
+				break
+			end
+		end
+	end
+
+	State.BallShadow = ballShadow
+	State.BallObject = ballObject
+
+	if not State.BallShadow or not State.BallObject then
+		State.PreviousPosition = nil
+		State.PreviousVelocity = nil
+		State.ConsecutiveDetections = 0
+		State.VelocityHistory = {}
+		State.PositionHistory = {}
+		State.TripleVectorHistory = {}
+		State.SmoothedVelocity = Vector3.zero
+		return
+	end
+
+	local rootPart = LocalPlayer.Character.PrimaryPart
+	local height = GetVisualHeight(State.BallShadow)
+	local currentPos = Vector3.new(State.BallShadow.Position.X, State.BallShadow.Position.Y + height, State.BallShadow.Position.Z)
+
+	if State.PreviousPosition then
+		local rawVelocityVec = (currentPos - State.PreviousPosition) / dt
+		local velocityMag = rawVelocityVec.Magnitude
+		local ping = LocalPlayer:GetNetworkPing()
+		local velocityVec = QuantumSmoothVelocity(rawVelocityVec, velocityMag, ping)
+		
+		table.insert(State.VelocityHistory, velocityMag)
+		if #State.VelocityHistory > 12 then table.remove(State.VelocityHistory, 1) end
+		
+		local isSkill, skillBonus = PerfectSkillDetection()
+		local curveStrength, curvePrediction, curveType = AdvancedCurvePrediction(velocityVec, currentPos)
+		
+		if velocityMag < 5 then
+			State.PreviousPosition = currentPos
+			State.PreviousVelocity = velocityVec
+			State.ConsecutiveDetections = 0
+			return
+		end
+
+		local dynamicDistance = ZeroMissCompensation(velocityMag, ping, isSkill, skillBonus, curveStrength, State.PerfectConfidence)
+		local flatDistance = (Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
+
+		UpdateHitboxVisualizer(rootPart.Position, dynamicDistance)
+
+		local isTargeted = ZeroMissTargeting(currentPos, velocityVec, rootPart.Position)
+
+		if Config.Debug and isTargeted then
+			local accuracy = State.TotalAttempts > 0 and (State.SuccessfulParries / State.TotalAttempts * 100) or 100
+			print(string.format("[V13.1 FIXED] Vel:%.1f | Dist:%.1f/%.1f | Conf:%.0f%% | Curve:%s(%.1f) | PARRYING!", 
+				velocityMag, flatDistance, dynamicDistance, State.PerfectConfidence, curveType or "None", curveStrength))
+		end
+
+		if Config.AutoSpam and isTargeted and flatDistance < 35 and velocityMag > 15 then
+			SpamParry()
+		elseif isTargeted and flatDistance <= dynamicDistance then
+			if Config.Debug then
+				print("[V13.1 FIXED] ✓ TRIGGER PARRY NOW!")
+			end
+			TriggerParry()
+		end
+		
+		State.PreviousVelocity = velocityVec
+	end
+
+	State.PreviousPosition = currentPos
+end)
+
+getgenv()[ScriptKey].Connection = Connection
+
+-- Apply saved FOV and camera settings on respawn
+LocalPlayer.CharacterAdded:Connect(function(character)
+	task.wait(0.5)
+	workspace.CurrentCamera.FieldOfView = Config.FOV
+	if Config.MaxCamera then
+		LocalPlayer.CameraMaxZoomDistance = 9999
+		LocalPlayer.CameraMinZoomDistance = 0.5
+	end
+end)
+
+-- Keybind to minimize UI
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed or Config.IsListeningForKey then return end
+	if input.KeyCode == Config.MinimizeKeybind then
+		if getgenv()[ScriptKey].UI then
+			getgenv()[ScriptKey].UI.MainFrame.Visible = not getgenv()[ScriptKey].UI.MainFrame.Visible
+		end
+	end
+end)
+
+task.spawn(function()
+	while task.wait(5) do
+		if Config.Enabled then
+			local ping = LocalPlayer:GetNetworkPing()
+			local pingMs = math.floor(ping * 1000)
+			local accuracy = State.TotalAttempts > 0 and (State.SuccessfulParries / State.TotalAttempts * 100) or 100
+			
+			print(string.format("[Death Ball Pro V13.1 FIXED] Ping:%dms | Confidence:%.0f%% | Accuracy:%.1f%% | Parries:%d/%d", 
+				pingMs, 
+				State.PerfectConfidence,
+				accuracy,
+				State.SuccessfulParries,
+				State.TotalAttempts
+			))
+		end
+	end
+end)
+
+print("[Death Ball Pro V13.1 FIXED] Loaded! ✓ Better Accuracy | ✓ Anti-Blind Fixed | ✓ Anti-AFK | ✓ Max Camera")blash
