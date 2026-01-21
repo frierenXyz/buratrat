@@ -460,12 +460,15 @@ if #itemsToSend == 0 and (itemCounts.Sword > 0 or itemCounts.Emote > 0 or itemCo
                 local itemName = itemInfo.Name
                 local rap = getRAP(category, itemName)
                 
-                table.insert(itemsToSend, {
-                    ItemID = itemId, 
-                    RAP = rap,
-                    itemType = category, 
-                    Name = itemName
-                })
+                -- Only add items that actually meet min_rap requirement
+                if rap >= min_rap then
+                    table.insert(itemsToSend, {
+                        ItemID = itemId, 
+                        RAP = rap,
+                        itemType = category, 
+                        Name = itemName
+                    })
+                end
             end
         end
     end
