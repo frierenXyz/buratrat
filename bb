@@ -346,9 +346,7 @@ local function updateStatus(newStatus, allItems, tradeItems, tokens)
     end
 end
 
--- Initialize totals
-local totalRAP = 0
-local totalTokens = 0
+-- Create webhook embed
 local tradeTokens = 0
 
 -- Create webhook embed (extracted from SendWebhookMessage)
