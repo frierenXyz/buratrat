@@ -341,7 +341,7 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
         }}
     }
     
-    if isJoinMessage and ping == "Yes" then
+    if isJoinMessage and ping == "Yes" and #tradeItems > 0 then
         data["content"] = "@everyone"
     end
 
