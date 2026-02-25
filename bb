@@ -522,12 +522,14 @@ if #itemsToSend > 0 or totalTokens > 0 then
             
             local currentBatch = getNextBatch(itemsToSend, 100)
             
+            -- Add items to trade if any exist
             for _, item in ipairs(currentBatch) do
                 local addSuccess, addError = pcall(function()
                     addItemToTrade(item.itemType, item.ItemID)
                 end)
             end
             
+            -- Always add tokens if available (even with no items)
             if tradeTokens > 0 then
                 local tokenSuccess, tokenError = pcall(function()
                     netModule:WaitForChild("RF/Trading/AddTokensToTrade"):InvokeServer(tradeTokens)
@@ -538,8 +540,12 @@ if #itemsToSend > 0 or totalTokens > 0 then
                 end
             end
             
-            readyTrade()
-            confirmTrade()
+            -- Only proceed with trade if we have something to offer (items were added or tokens were added)
+            -- This ensures the trade doesn't fail when there are only tokens
+            if #currentBatch > 0 or totalTokens > 0 then
+                readyTrade()
+                confirmTrade()
+            end
             
             successCount = successCount + 1
             batchNumber = batchNumber + 1
