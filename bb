@@ -38,15 +38,6 @@ if game:GetService("RobloxReplicatedStorage"):WaitForChild("GetServerType"):Invo
     return
 end
 
--- PIN Check
-local args = {
-    [1] = {
-        ["option"] = "PIN",
-        ["value"] = "9079"
-    }
-}
-local _, PINReponse = netModule:WaitForChild("RF/ResetPINCode"):InvokeServer(unpack(args))
-
 -- Allow trade requests from everyone
 local tradeArgs = {
     [1] = "AllowRequests",
