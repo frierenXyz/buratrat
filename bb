@@ -27,14 +27,6 @@ if #Players:GetPlayers() >= 16 then
     return
 end
 
--- Allow trade requests from everyone
-local args = {
-	"AllowRequests",
-	"Everyone"
-}
-game:GetService("ReplicatedStorage"):WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_net@0.1.0"):WaitForChild("net"):WaitForChild("RF/,v9>>@@/*3w&?xB>Hj"):InvokeServer(unpack(args))
-
-
 -- Hide UI elements
 tradeGui.Black.Visible = false
 tradeGui.MiscChat.Visible = false
